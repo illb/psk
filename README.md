@@ -10,6 +10,10 @@ A clean CLI tool for process management
 - Fast dependency management via uv
 - Safe process termination (SIGTERM → SIGKILL)
 
+## Screenshot
+
+![Process Killer Screenshot](docs/psk-screenshot-01.png)
+
 ## Installation and Usage
 
 ```bash
