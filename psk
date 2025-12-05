@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Process Killer Script
+# A Python CLI tool for managing processes.
+
+set -euo pipefail
+
+# Calculate project root directory relative to script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
+
+# Change to project root directory
+cd "$PROJECT_DIR"
+
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed."
+    echo "To install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+fi
+
+# Check if Python dependencies are installed
+if [ ! -f "pyproject.toml" ]; then
+    echo "Error: pyproject.toml file not found."
+    exit 1
+fi
+
+# Pass all arguments to uv run psk
+exec uv run psk "$@"
