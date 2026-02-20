@@ -5,6 +5,7 @@ import typer
 from typing import Optional
 from rich.console import Console
 
+from ..common.cli_utils import initialize_cli
 from ..process_killer import ProcessKiller
 
 app = typer.Typer(
@@ -130,6 +131,7 @@ def run(
 
 def main():
     """Main function"""
+    initialize_cli()
     app()
 
 

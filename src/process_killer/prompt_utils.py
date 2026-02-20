@@ -474,5 +474,3 @@ def select_multiple_custom(
         return result
     except (KeyboardInterrupt, EOFError):
         return None
-
-

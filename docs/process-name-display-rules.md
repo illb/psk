@@ -83,7 +83,7 @@ The full path of a process is abbreviated for readability. The following rules a
 
 - Format: `{parent directory} / {executable name}`
 - Examples:
-  - `/Users/illb/project/script.sh` → `project / script.sh`
+  - `/Users/some-user/project/script.sh` → `project / script.sh`
   - `/var/www/html/server.js` → `html / server.js`
   - `/Applications/Claude.app/Contents/Frameworks/Claude` → `Frameworks / Claude`
 
@@ -123,4 +123,4 @@ Rules are applied in the following order:
 | `/bin/zsh` | `bin / zsh` |
 | `/usr/local/bin/my-script` | `local / my-script` |
 | `node script.js` | `(no path) / node` |
-| `/Users/illb/project/script.sh` | `project / script.sh` |
+| `/Users/some-user/project/script.sh` | `project / script.sh` |
