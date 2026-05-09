@@ -1,6 +1,7 @@
 """
 Process Killer CLI
 """
+import sys
 import typer
 from typing import Optional
 from rich.console import Console
@@ -11,7 +12,7 @@ from ..process_killer import ProcessKiller
 app = typer.Typer(
     name="psk",
     help="Process management tool",
-    no_args_is_help=False
+    no_args_is_help=True,
 )
 
 console = Console()
@@ -29,53 +30,6 @@ def run_process_killer(
 
     killer = ProcessKiller(exclude_list=exclude_list, name_filter=name)
     killer.run(sort_by=by)
-
-
-@app.callback(invoke_without_command=True)
-def main_callback(
-    ctx: typer.Context,
-    by: Optional[str] = typer.Option(
-        None,
-        "--by",
-        "-b",
-        help="Process sorting method: general, memory, cpu, uptime, zombie"
-    ),
-    excludes: Optional[str] = typer.Option(
-        None,
-        "--excludes",
-        "-e",
-        help="Process names to exclude (comma-separated, e.g., 'Cursor,Google Chrome')"
-    ),
-    name: Optional[str] = typer.Option(
-        None,
-        "--name",
-        "-n",
-        help="Filter by specific process name (e.g., 'Chrome', 'node')"
-    )
-):
-    """
-    Process management tool
-    
-    Sorting methods:
-    - general: General (CPU + Memory)
-    - memory: Memory usage
-    - cpu: CPU usage
-    - uptime: Uptime (oldest first)
-    - zombie: Zombie processes
-    
-    Exclusion filter:
-    - excludes: Process names to exclude (comma-separated)
-      Example: --excludes "Cursor,Google Chrome"
-    
-    Name filter:
-    - name: Filter by specific process name
-      Example: --name "Chrome" or --name "node"
-    
-    Search:
-    - Press '/' key after execution to search in real-time
-    """
-    if ctx.invoked_subcommand is None:
-        run_process_killer(by=by, excludes=excludes, name=name)
 
 
 @app.command()
@@ -132,6 +86,11 @@ def run(
 def main():
     """Main function"""
     initialize_cli()
+    if not sys.argv[1:] or sys.argv[1].startswith("-"):
+        if {"--help", "-h"} & set(sys.argv[1:]):
+            sys.argv[:] = [sys.argv[0], "--help"]
+        else:
+            sys.argv[1:1] = ["run"]
     app()
 
 
