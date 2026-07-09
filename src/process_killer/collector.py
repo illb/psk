@@ -17,12 +17,70 @@ console = Console()
 class ProcessCollector:
     """Process information collection and formatting class"""
     
+    def _get_ppid_map(self) -> dict:
+        """Fetch pid -> ppid for every process in a single ps call.
+
+        Doing this once avoids a per-process `ps -o ppid` subprocess (which is
+        O(processes) forks and noticeably slow on a busy machine).
+        """
+        ppid_map = {}
+        try:
+            result = subprocess.run(['ps', '-axo', 'pid=,ppid='],
+                                    capture_output=True, text=True, check=True)
+            for line in result.stdout.strip().split('\n'):
+                parts = line.split()
+                if len(parts) >= 2:
+                    ppid_map[parts[0]] = parts[1]
+        except subprocess.CalledProcessError:
+            pass
+        return ppid_map
+
+    def _get_etime_map(self) -> dict:
+        """Fetch pid -> elapsed-time-in-seconds for every process in one ps call.
+
+        `etime` comes as [[dd-]hh:]mm:ss; parse to an int so categories can
+        threshold on age (e.g. 'stale codex/claude ≥ 3 days').
+        """
+        etime_map = {}
+        try:
+            result = subprocess.run(['ps', '-axo', 'pid=,etime='],
+                                    capture_output=True, text=True, check=True)
+            for line in result.stdout.strip().split('\n'):
+                parts = line.split()
+                if len(parts) >= 2:
+                    etime_map[parts[0]] = self._parse_etime(parts[1])
+        except subprocess.CalledProcessError:
+            pass
+        return etime_map
+
+    @staticmethod
+    def _parse_etime(etime: str) -> int:
+        """Parse ps etime ([[dd-]hh:]mm:ss) into seconds. Returns 0 on failure."""
+        try:
+            days = 0
+            rest = etime
+            if '-' in rest:
+                day_str, rest = rest.split('-', 1)
+                days = int(day_str)
+            parts = [int(p) for p in rest.split(':')]
+            if len(parts) == 3:
+                h, m, s = parts
+            elif len(parts) == 2:
+                h, m, s = 0, parts[0], parts[1]
+            else:
+                return 0
+            return days * 86400 + h * 3600 + m * 60 + s
+        except (ValueError, AttributeError):
+            return 0
+
     def get_process_info(self) -> List[ProcessInfo]:
         """Collect process information from system and return as ProcessInfo list"""
         try:
             result = subprocess.run(['ps', 'aux'], capture_output=True, text=True, check=True)
             lines = result.stdout.strip().split('\n')[1:]  # Remove header
-            
+
+            ppid_map = self._get_ppid_map()
+            etime_map = self._get_etime_map()
             processes = []
             for line in lines:
                 parts = line.split(None, 10)
@@ -50,12 +108,8 @@ class ProcessCollector:
                         except (IndexError, AttributeError):
                             pass
                     
-                    # Get PPID
-                    ppid_result = subprocess.run(['ps', '-o', 'ppid=', '-p', pid], 
-                                               capture_output=True, text=True)
-                    ppid = ppid_result.stdout.strip() if ppid_result.returncode == 0 else ''
-                    if not ppid:
-                        ppid = '?'
+                    # Get PPID from the batch map
+                    ppid = ppid_map.get(pid, '') or '?'
                     
                     # Calculate uptime (return '?' if start is empty string)
                     uptime = ''
@@ -77,6 +131,7 @@ class ProcessCollector:
                         command=command or '',
                         name=process_name or 'unknown',
                         type=process_type or 'unknown',
+                        etime_seconds=etime_map.get(pid, 0),
                         selected=False
                     )
                     processes.append(process_info)

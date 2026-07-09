@@ -14,6 +14,7 @@ class ProcessInfo(BaseModel):
     stat: str = Field(..., description="Process status")
     start: str = Field(..., description="Start time")
     uptime: str = Field(..., description="Uptime")
+    etime_seconds: int = Field(default=0, description="Elapsed running time in seconds")
     command: str = Field(..., description="Full command")
     name: str = Field(..., description="Formatted process name")
     type: str = Field(..., description="Process type")

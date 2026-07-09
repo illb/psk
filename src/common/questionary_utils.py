@@ -86,22 +86,70 @@ def select_single(
             )
             for value, label in choices
         ]
-        
+
         result = questionary.select(
             title,
             choices=questionary_choices,
             default=default,
             instruction="↑↓ Move, Enter Confirm, / Search"
         ).ask()
-        
+
         if result is None:
             # Cancelled with ESC
             raise CancelledError()
-        
+
         return result
     except KeyboardInterrupt:
         # Ctrl+C: propagate to parent
         raise
     except CancelledError:
         # Cancelled with ESC
+        raise
+
+
+def select_checkbox(
+    title: str,
+    choices: List[tuple],
+    checked_values: Optional[List[Any]] = None,
+) -> List[Any]:
+    """
+    Multi-selection (questionary.checkbox wrapper)
+
+    Args:
+        title: Prompt title
+        choices: List of (value, label) tuples
+        checked_values: Values that start pre-checked
+
+    Returns:
+        List of selected values (may be empty)
+
+    Raises:
+        KeyboardInterrupt: When Ctrl+C is pressed
+        CancelledError: When cancelled with ESC
+    """
+    checked_values = checked_values or []
+    try:
+        questionary_choices = [
+            questionary.Choice(
+                title=label,
+                value=value,
+                checked=value in checked_values,
+            )
+            for value, label in choices
+        ]
+
+        result = questionary.checkbox(
+            title,
+            choices=questionary_choices,
+            instruction="↑↓ Move, Space Toggle, Enter Confirm",
+        ).ask()
+
+        if result is None:
+            # Cancelled with ESC
+            raise CancelledError()
+
+        return result
+    except KeyboardInterrupt:
+        raise
+    except CancelledError:
         raise
