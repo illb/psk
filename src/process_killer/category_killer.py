@@ -113,6 +113,7 @@ class CategoryKiller:
     def _match_all(self, processes: List[ProcessInfo]) -> Dict[str, List[ProcessInfo]]:
         """Return {category_key: [matching processes]} for every category."""
         excluded = self._self_and_ancestors()
+        excluded |= self._active_bootrun_pids(processes)
         result: Dict[str, List[ProcessInfo]] = {c.key: [] for c in CATEGORIES}
         for proc in processes:
             if proc.pid in excluded:
@@ -346,6 +347,42 @@ class CategoryKiller:
             return True
         except OSError:
             return False
+
+    @staticmethod
+    def _active_bootrun_pids(processes: List[ProcessInfo]) -> set:
+        """PIDs belonging to an active `gradle bootRun` tree — never reap them.
+
+        proj-config bootRun runs `gradlew --no-daemon ... bootRun`, so the whole
+        tree (the bootRun launcher, its single-use Gradle daemon child, and the
+        forked Spring server) descends from the process whose command contains
+        `bootRun`. An idle server sits at CPU < 1%, which would otherwise match
+        the idle-Gradle category and abort the running server. Protect any pid
+        whose own or any ancestor's command contains `bootrun`.
+        """
+        command_by_pid: Dict[int, str] = {}
+        parent_of: Dict[int, int] = {}
+        for proc in processes:
+            try:
+                pid = int(proc.pid)
+            except (TypeError, ValueError):
+                continue
+            command_by_pid[pid] = (proc.command or "").lower()
+            try:
+                parent_of[pid] = int(proc.ppid)
+            except (TypeError, ValueError):
+                parent_of[pid] = 0
+
+        protected: set = set()
+        for pid in command_by_pid:
+            cursor = pid
+            for _ in range(64):  # guard against cycles
+                if cursor <= 0 or cursor not in command_by_pid:
+                    break
+                if "bootrun" in command_by_pid[cursor]:
+                    protected.add(pid)
+                    break
+                cursor = parent_of.get(cursor, 0)
+        return protected
 
     @staticmethod
     def _self_and_ancestors() -> set:
