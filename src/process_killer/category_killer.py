@@ -96,24 +96,32 @@ class CategoryKiller:
 
         Used by the daemon and by any scripted caller. Never prompts.
         """
-        processes = self.collector.get_process_info()
-        if not processes:
-            return {"targeted": 0, "killed": 0, "by_category": {}}
         valid = [k for k in keys if k in CATEGORY_BY_KEY]
-        matches = self._match_all(processes)
-        targets = self._collect_targets(valid, matches)
+        targets = self.find_category_targets(valid)
         if not targets:
             return {"targeted": 0, "killed": 0, "by_category": {k: 0 for k in valid}}
         if not quiet:
             self._print_targets(targets)
         return self._execute(targets, assume_yes, quiet=quiet)
 
+    def find_category_targets(
+        self,
+        keys: List[str],
+    ) -> List[Tuple[ProcessInfo, KillCategory]]:
+        """Return matched targets for category keys without printing or killing."""
+        processes = self.collector.get_process_info()
+        if not processes:
+            return []
+        valid = [k for k in keys if k in CATEGORY_BY_KEY]
+        matches = self._match_all(processes)
+        return self._collect_targets(valid, matches)
+
     # ---- matching -----------------------------------------------------------
 
     def _match_all(self, processes: List[ProcessInfo]) -> Dict[str, List[ProcessInfo]]:
         """Return {category_key: [matching processes]} for every category."""
         excluded = self._self_and_ancestors()
-        excluded |= self._active_bootrun_pids(processes)
+        excluded |= self._active_gradle_build_pids(processes)
         result: Dict[str, List[ProcessInfo]] = {c.key: [] for c in CATEGORIES}
         for proc in processes:
             if proc.pid in excluded:
@@ -205,17 +213,20 @@ class CategoryKiller:
         table.add_column("CPU%", justify="right")
         table.add_column("MEM%", justify="right")
         table.add_column("Up", justify="right", style="dim")
+        table.add_column("Reason", style="yellow")
         table.add_column("Command")
         for proc, category in targets:
             command = proc.command or proc.name or "unknown"
             if len(command) > 80:
                 command = command[:77] + "..."
+            reason = category.reason(proc) if category.reason else ""
             table.add_row(
                 category.key,
                 str(proc.pid),
                 f"{proc.cpu:.1f}",
                 f"{proc.mem:.1f}",
                 proc.uptime,
+                reason,
                 command,
             )
         console.print(table)
@@ -349,15 +360,13 @@ class CategoryKiller:
             return False
 
     @staticmethod
-    def _active_bootrun_pids(processes: List[ProcessInfo]) -> set:
-        """PIDs belonging to an active `gradle bootRun` tree — never reap them.
+    def _active_gradle_build_pids(processes: List[ProcessInfo]) -> set:
+        """PIDs belonging to an active Gradle build tree — never reap them.
 
-        proj-config bootRun runs `gradlew --no-daemon ... bootRun`, so the whole
-        tree (the bootRun launcher, its single-use Gradle daemon child, and the
-        forked Spring server) descends from the process whose command contains
-        `bootRun`. An idle server sits at CPU < 1%, which would otherwise match
-        the idle-Gradle category and abort the running server. Protect any pid
-        whose own or any ancestor's command contains `bootrun`.
+        A `gradlew --no-daemon ... <task>` launcher can have a single-use Gradle
+        daemon child whose CPU temporarily drops below the idle threshold between
+        tasks. Protect any process whose own or ancestor command is a Gradle
+        build launcher.
         """
         command_by_pid: Dict[int, str] = {}
         parent_of: Dict[int, int] = {}
@@ -378,7 +387,13 @@ class CategoryKiller:
             for _ in range(64):  # guard against cycles
                 if cursor <= 0 or cursor not in command_by_pid:
                     break
-                if "bootrun" in command_by_pid[cursor]:
+                command = command_by_pid[cursor]
+                if (
+                    "bootrun" in command
+                    or "org.gradle.wrapper.gradlewrappermain" in command
+                    or "org.gradle.launcher.gradlemain" in command
+                    or "gradle-cli-main" in command
+                ):
                     protected.add(pid)
                     break
                 cursor = parent_of.get(cursor, 0)

@@ -53,7 +53,7 @@ Categories:
 
 - `zombie` — defunct (stat `Z`) processes; their parent is nudged (SIGCHLD) to reap them
 - `lsp` — orphaned language servers (PPID 1): leaked serena / pyright / typescript / kotlin LSPs
-- `gradle` — idle Gradle build / Kotlin compile daemons (CPU < 1%); they respawn on the next build
+- `gradle` — idle Gradle / Kotlin daemon JVMs (CPU < 1%); manual cleanup only, because active builds can briefly look idle
 - `codex` — OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old
 - `claude` — Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old
 
@@ -67,17 +67,26 @@ psk kill -c lsp,gradle        # non-interactive, still confirms
 psk kill -c lsp,zombie -y     # non-interactive, no prompt
 psk kill -c gradle --dry-run  # preview only, kill nothing
 psk kill -c codex,claude      # orphaned/stale only — review, then confirm
+psk stale-ai                  # same codex/claude stale scan, with reasons
+psk stale-ai --dry-run        # preview clearly stale AI processes only
 ```
 
 Termination is SIGTERM first, then SIGKILL for survivors. The running process
 and its ancestors are always excluded, so `kill` can never terminate itself.
 
+`psk stale-ai` is the preferred command for Codex/Claude cleanup. It only
+matches processes with known Codex/Claude command markers that are orphaned
+(`PPID 1`) or at least 3 days old, prints the reason for each match, and asks
+before termination unless `--yes` is explicitly passed.
+
 ## Cleanup daemon (`psk daemon`)
 
 Run a periodic background cleanup so leaks never accumulate. Installed as a
 macOS LaunchAgent (`com.illb.psk-daemon`), it runs the safe set
-(`zombie,lsp,gradle`) every 30 minutes and at login/boot. `codex` / `claude`
-are intentionally excluded from the daemon — they are manual-only.
+(`zombie,lsp`) every 30 minutes and at login/boot. `gradle`, `codex`, and
+`claude` are intentionally excluded from daemon termination by default. The
+daemon may report clearly stale AI candidates in the log, but cleanup stays
+manual via `psk stale-ai` so the user can confirm first.
 
 ```bash
 # install + load (runs at boot thereafter), and stop + remove:
@@ -90,7 +99,9 @@ tail -n 20 ~/Library/Logs/psk-daemon.log
 
 # run standalone (no launchd):
 psk daemon --once                          # one cycle, then exit
-psk daemon --interval 1800 -c zombie,lsp,gradle
+psk daemon --interval 1800 -c zombie,lsp
+psk kill -c gradle --dry-run               # inspect idle Gradle/Kotlin daemon candidates manually
+psk daemon --no-check-stale-ai             # disable codex/claude stale reporting
 ```
 
 Configure via env before install: `PSK_DAEMON_INTERVAL` (seconds),

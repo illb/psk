@@ -12,7 +12,7 @@ Strategies:
   parent with SIGCHLD so the parent reaps it.
 """
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from .models import ProcessInfo
 
@@ -29,15 +29,10 @@ _LSP_MARKERS = (
     "pyright",
 )
 
-# Command substrings that identify an idle Gradle / Kotlin build daemon.
-_GRADLE_MARKERS = (
-    "kotlin-build-tools",
-    "kotlincompiledaemon",
-    "gradledaemon",
-    "org.gradle.launcher",
-    "gradle-launcher",
-    "gradle/wrapper",
-    "gradlewrapper",
+# Java main classes that identify Gradle / Kotlin daemon processes.
+_GRADLE_DAEMON_MARKERS = (
+    "org.gradle.launcher.daemon.bootstrap.gradledaemon",
+    "org.jetbrains.kotlin.daemon.kotlincompiledaemon",
 )
 
 # CPU% below this counts as "idle" for daemon categories.
@@ -63,6 +58,15 @@ def _is_zombie(proc: ProcessInfo) -> bool:
 
 def _is_orphan_or_stale(proc: ProcessInfo) -> bool:
     return proc.ppid == "1" or proc.etime_seconds >= STALE_SECONDS
+
+
+def _orphan_or_stale_reason(proc: ProcessInfo) -> str:
+    reasons = []
+    if proc.ppid == "1":
+        reasons.append("orphaned: PPID 1")
+    if proc.etime_seconds >= STALE_SECONDS:
+        reasons.append("stale: >= 3 days")
+    return "; ".join(reasons)
 
 
 def _is_codex_leak(proc: ProcessInfo) -> bool:
@@ -104,7 +108,11 @@ def _is_idle_gradle(proc: ProcessInfo) -> bool:
     if proc.cpu >= _IDLE_CPU:
         return False
     command = (proc.command or "").lower()
-    return any(marker in command for marker in _GRADLE_MARKERS)
+    first = command.split()[0] if command.split() else ""
+    base = first.rsplit("/", 1)[-1]
+    if base not in {"java", "java.exe"}:
+        return False
+    return any(marker in command for marker in _GRADLE_DAEMON_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -115,6 +123,7 @@ class KillCategory:
     description: str
     strategy: str                         # "terminate" | "reap_parent"
     matcher: Callable[[ProcessInfo], bool]
+    reason: Optional[Callable[[ProcessInfo], str]] = None
 
 
 CATEGORIES: List[KillCategory] = [
@@ -137,8 +146,8 @@ CATEGORIES: List[KillCategory] = [
     KillCategory(
         key="gradle",
         label="Idle Gradle/Kotlin daemons",
-        description="Gradle build / Kotlin compile daemons sitting idle (CPU < 1%). "
-                    "They respawn automatically on the next build.",
+        description="Gradle / Kotlin daemon JVMs sitting idle (CPU < 1%). "
+                    "Manual cleanup only because active builds can briefly look idle.",
         strategy="terminate",
         matcher=_is_idle_gradle,
     ),
@@ -149,6 +158,7 @@ CATEGORIES: List[KillCategory] = [
                     "older than 3 days. Active recent sessions are never matched.",
         strategy="terminate",
         matcher=_is_codex_leak,
+        reason=_orphan_or_stale_reason,
     ),
     KillCategory(
         key="claude",
@@ -157,6 +167,7 @@ CATEGORIES: List[KillCategory] = [
                     "older than 3 days. Active recent sessions are never matched.",
         strategy="terminate",
         matcher=_is_claude_leak,
+        reason=_orphan_or_stale_reason,
     ),
 ]
 

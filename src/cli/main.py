@@ -98,6 +98,36 @@ def kill(
     )
 
 
+@app.command("stale-ai")
+def stale_ai(
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip confirmation prompt after showing stale AI process targets.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show stale AI process targets without terminating anything.",
+    ),
+):
+    """
+    Find clearly orphaned/stale Codex and Claude processes, then ask before
+    terminating them.
+
+    A process is eligible only when it matches Codex/Claude command markers and
+    is orphaned (PPID 1) or has been running for at least 3 days. Recent active
+    AI sessions are not matched.
+    """
+    CategoryKiller().run(
+        category_keys_selected=["codex", "claude"],
+        assume_yes=yes,
+        dry_run=dry_run,
+        list_only=False,
+    )
+
+
 @app.command()
 def run(
     by: Optional[str] = typer.Option(
@@ -167,6 +197,11 @@ def daemon(
         "--log",
         help="Log file path (use '' to disable file logging).",
     ),
+    check_stale_ai: bool = typer.Option(
+        True,
+        "--check-stale-ai/--no-check-stale-ai",
+        help="Also report clearly stale Codex/Claude candidates; never terminates them.",
+    ),
 ):
     """
     Run the periodic cleanup daemon.
@@ -175,8 +210,8 @@ def daemon(
     gradle) and appends a summary line to the log. Intended to be supervised by
     launchd (see deploy/install-daemon.sh) but runnable standalone.
 
-    Note: `codex`/`claude` are intentionally NOT part of the default set — they
-    are manual-only via `psk kill` to avoid killing active sessions.
+    Note: `codex`/`claude` are intentionally NOT auto-terminated. The daemon
+    reports clearly stale candidates; use `psk stale-ai` to review and confirm.
     """
     keys = [k.strip() for k in categories.split(",") if k.strip()]
     run_daemon(
@@ -184,11 +219,12 @@ def daemon(
         interval_seconds=interval,
         once=once,
         log_path=(log or None),
+        check_stale_ai=check_stale_ai,
     )
 
 
 # Subcommands that must never be rewritten to the default `run` command.
-KNOWN_COMMANDS = {"run", "kill", "daemon", "version"}
+KNOWN_COMMANDS = {"run", "kill", "stale-ai", "daemon", "version"}
 
 
 def main():
