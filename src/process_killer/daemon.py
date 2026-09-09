@@ -3,8 +3,8 @@
 psk cleanup daemon.
 
 Periodically runs the category killer over the always-safe categories
-(zombie, orphaned LSP by default) so leaks never accumulate. Designed to be
-supervised by launchd (see deploy/), but also runs
+(zombie, orphaned LSP and verified disconnected log followers by default) so leaks never
+accumulate. Designed to be supervised by launchd (see deploy/), but also runs
 standalone. Each cycle appends one summary line to a log file.
 
 The daemon deliberately never schedules the `gradle`, `codex`, or `claude`
@@ -23,7 +23,7 @@ from .category_killer import CategoryKiller
 
 DEFAULT_INTERVAL_SECONDS = 1800  # 30 minutes
 DEFAULT_LOG_PATH = "~/Library/Logs/psk-daemon.log"
-DEFAULT_CATEGORIES = ["zombie", "lsp"]
+DEFAULT_CATEGORIES = ["zombie", "lsp", "orphan-tail"]
 STALE_AI_CATEGORIES = ["codex", "claude"]
 
 _stop = False

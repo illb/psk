@@ -34,6 +34,7 @@ session invoking it.
 |----------|---------------------------------------------------------------------|--------|
 | `zombie` | Defunct (stat `Z`) processes; parent is nudged (SIGCHLD) to reap them | safe |
 | `lsp`    | Orphaned language servers (PPID 1): leaked serena/pyright/ts/kotlin  | safe |
+| `orphan-tail` | PPID 1 follow-mode tail, 커널에서 stdout 파이프 peer 없음 + EOF 확인 | verified auto |
 | `gradle` | Idle Gradle / Kotlin daemon JVMs (CPU < 1%)                  | manual |
 | `codex`  | OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old | orphan/stale only |
 | `claude` | Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old  | orphan/stale only |
@@ -48,7 +49,7 @@ and asks before terminating unless the user explicitly approved `--yes`.
 
 ## Cleanup daemon
 
-A LaunchAgent (`com.illb.psk-daemon`) runs the always-safe set (`zombie,lsp`)
+A LaunchAgent (`com.illb.psk-daemon`) runs the verified cleanup set (`zombie,lsp,orphan-tail`)
 every 30 minutes and at login/boot. `gradle` is manual-only by default because
 active builds can briefly look idle while tasks hand off between daemon JVMs.
 
@@ -71,6 +72,9 @@ termination stays manual so the user can confirm first.
 - The always-safe set (`zombie`, `lsp`) is low-risk and may be run with `-y`.
 - For `gradle`, preview with `psk kill -c gradle --dry-run` and avoid daemon
   auto-kill unless the candidates are clearly idle.
+- `orphan-tail`은 `psk kill -c orphan-tail --dry-run`으로 먼저 확인한다.
+  PPID 1만으로 종료하지 않고 macOS 커널의 stdout 파이프 peer 없음 + EOF를 확인한다.
+  연결된 소비자, 파일, 터미널, `/dev/null`, 조회 실패는 보호하며 SIGTERM/SIGKILL 직전 재검증한다.
 - For `codex` / `claude`, show the dry-run, explain what will be killed, and get
   user approval before terminating — do not pass `-y` blindly.
 - Prefer `psk stale-ai --dry-run` before asking the user to approve stale

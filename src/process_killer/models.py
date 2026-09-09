@@ -2,6 +2,7 @@
 Process information model
 """
 from pydantic import BaseModel, Field
+from typing import Optional, Tuple
 
 
 class ProcessInfo(BaseModel):
@@ -19,6 +20,8 @@ class ProcessInfo(BaseModel):
     name: str = Field(..., description="Formatted process name")
     type: str = Field(..., description="Process type")
     selected: bool = Field(default=False, description="Selection status")
+    tail_identity: Optional[Tuple[int, int, int]] = Field(
+        default=None, description="Verified tail start time and disconnected stdout pipe identity")
     
     class Config:
         """Pydantic configuration"""

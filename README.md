@@ -53,6 +53,7 @@ Categories:
 
 - `zombie` — defunct (stat `Z`) processes; their parent is nudged (SIGCHLD) to reap them
 - `lsp` — orphaned language servers (PPID 1): leaked serena / pyright / typescript / kotlin LSPs
+- `orphan-tail` — PPID 1인 `tail -f` / `tail -F` 중 stdout 파이프의 소비자 연결 종료를 커널에서 확인한 프로세스
 - `gradle` — idle Gradle / Kotlin daemon JVMs (CPU < 1%); manual cleanup only, because active builds can briefly look idle
 - `codex` — OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old
 - `claude` — Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old
@@ -83,7 +84,7 @@ before termination unless `--yes` is explicitly passed.
 
 Run a periodic background cleanup so leaks never accumulate. Installed as a
 macOS LaunchAgent (`com.illb.psk-daemon`), it runs the safe set
-(`zombie,lsp`) every 30 minutes and at login/boot. `gradle`, `codex`, and
+(`zombie,lsp,orphan-tail`) every 30 minutes and at login/boot. `gradle`, `codex`, and
 `claude` are intentionally excluded from daemon termination by default. The
 daemon may report clearly stale AI candidates in the log, but cleanup stays
 manual via `psk stale-ai` so the user can confirm first.
@@ -99,10 +100,17 @@ tail -n 20 ~/Library/Logs/psk-daemon.log
 
 # run standalone (no launchd):
 psk daemon --once                          # one cycle, then exit
-psk daemon --interval 1800 -c zombie,lsp
+psk daemon --interval 1800 -c zombie,lsp,orphan-tail
+psk kill -c orphan-tail --dry-run          # 연결이 끊긴 stdout 파이프 검증 결과
 psk kill -c gradle --dry-run               # inspect idle Gradle/Kotlin daemon candidates manually
 psk daemon --no-check-stale-ai             # disable codex/claude stale reporting
 ```
+
+`orphan-tail`은 PPID 1만으로 종료하지 않는다. macOS `libproc`로 실제 프로세스명과
+부모 PID를 확인하고 stdout이 쓰기 파이프이며 peer가 없고 EOF인 경우에만 자동 정리한다.
+소비자가 남은 파이프, 파일, 터미널, `/dev/null`, 조회 실패 및 미지원 OS는 보호한다.
+SIGTERM/SIGKILL 직전에도 시작 시각과 파이프 식별자, 연결 상태를 다시 확인한다.
+옵션 파서는 `--` 또는 첫 파일명 이후를 해석하지 않으며, 지원하지 않는 옵션은 후보에서 제외한다.
 
 Configure via env before install: `PSK_DAEMON_INTERVAL` (seconds),
 `PSK_DAEMON_CATEGORIES` (comma-separated).

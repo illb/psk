@@ -272,6 +272,8 @@ class CategoryKiller:
             console.print("\n[blue]Sending SIGTERM...[/blue]")
         sent = []
         for proc in procs:
+            if proc.tail_identity is not None and not CATEGORY_BY_KEY["orphan-tail"].matcher(proc):
+                continue
             try:
                 os.kill(proc.pid, signal.SIGTERM)
                 sent.append(proc)
@@ -302,6 +304,8 @@ class CategoryKiller:
         if not quiet:
             console.print("[blue]Sending SIGKILL...[/blue]")
         for proc in survivors:
+            if proc.tail_identity is not None and not CATEGORY_BY_KEY["orphan-tail"].matcher(proc):
+                continue
             try:
                 os.kill(proc.pid, signal.SIGKILL)
             except OSError as e:

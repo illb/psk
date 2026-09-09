@@ -12,9 +12,11 @@ Strategies:
   parent with SIGCHLD so the parent reaps it.
 """
 from dataclasses import dataclass
+import shlex
 from typing import Callable, List, Optional
 
 from .models import ProcessInfo
+from .tail_output import disconnected_tail_identity
 
 # Command substrings that identify a language server process (case-insensitive).
 _LSP_MARKERS = (
@@ -50,7 +52,6 @@ _CODEX_MARKERS = (
     "codex resume",
     "codex.app",
 )
-
 
 def _is_zombie(proc: ProcessInfo) -> bool:
     return "Z" in (proc.stat or "")
@@ -102,6 +103,65 @@ def _is_orphan_lsp(proc: ProcessInfo) -> bool:
     return any(marker in command for marker in _LSP_MARKERS)
 
 
+def _tail_follows(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    if not tokens or tokens[0].rsplit("/", 1)[-1] != "tail":
+        return False
+
+    following = False
+    args = iter(tokens[1:])
+    for token in args:
+        # ps command strings may lose argument boundaries. Never scan filenames
+        # for options; ambiguous or unsupported syntax stays out of the targets.
+        if token == "--" or token == "-" or not token.startswith("-"):
+            break
+        if token in {"--follow", "--follow=name", "--follow=descriptor"}:
+            following = True
+        elif token in {"--quiet", "--silent", "--verbose", "--retry"}:
+            continue
+        elif token in {"--lines", "--bytes"}:
+            if not next(args, "").lstrip("+-").isdigit():
+                return False
+        elif token.startswith(("--lines=", "--bytes=")):
+            if not token.partition("=")[2].lstrip("+-").isdigit():
+                return False
+        elif token.startswith("--"):
+            return False
+        else:
+            for index, flag in enumerate(token[1:], start=1):
+                if flag in "fF":
+                    following = True
+                elif flag in "qv":
+                    continue
+                elif flag in "ncb":
+                    count = token[index + 1:] or next(args, "")
+                    if not count.lstrip("+-").isdigit():
+                        return False
+                    break
+                else:
+                    return False
+    return following
+
+
+def _is_orphan_tail(proc: ProcessInfo) -> bool:
+    if _is_zombie(proc):
+        return False
+    if proc.ppid != "1":
+        return False
+    if not _tail_follows(proc.command or ""):
+        return False
+    identity = disconnected_tail_identity(proc.pid)
+    if identity is None:
+        return False
+    if proc.tail_identity is not None and proc.tail_identity != identity:
+        return False
+    proc.tail_identity = identity
+    return True
+
+
 def _is_idle_gradle(proc: ProcessInfo) -> bool:
     if _is_zombie(proc):
         return False
@@ -142,6 +202,15 @@ CATEGORIES: List[KillCategory] = [
                     "reparented to launchd after their session died.",
         strategy="terminate",
         matcher=_is_orphan_lsp,
+    ),
+    KillCategory(
+        key="orphan-tail",
+        label="Disconnected orphaned log followers",
+        description="PPID 1 tail followers with a kernel-verified disconnected "
+                    "stdout pipe. Live readers and unverified outputs are protected.",
+        strategy="terminate",
+        matcher=_is_orphan_tail,
+        reason=lambda proc: "PPID 1; stdout pipe has no peer and is at EOF",
     ),
     KillCategory(
         key="gradle",
