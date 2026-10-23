@@ -23,3 +23,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typer.confirm".msg = "Use prompt_utils.select_yes_no for confirmations"
+"typer.prompt".msg = "Use prompt_utils.input_text for text and select_single for choices"
+"click.confirm".msg = "Use prompt_utils.select_yes_no for confirmations"
+"click.prompt".msg = "Use prompt_utils.input_text for text and select_single for choices"
+"questionary".msg = "Use the standard prompt_utils (select_*, input_text)"
+"rich.prompt".msg = "Use the standard prompt_utils (select_*, input_text)"
