@@ -69,7 +69,6 @@ class ProcessDisplay:
             console.print("[yellow]No processes to display.[/yellow]")
             return
 
-        # Multi-select with questionary checkbox
         choices = []
         for i, proc in enumerate(filtered_processes):
             # Process name field (fixed to exactly 50 characters)

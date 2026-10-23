@@ -1,5 +1,7 @@
 """
 Prompt utility functions using prompt_toolkit
+
+표준 select_multiple 에 없는 상세 보기·필터·페이지 이동이 필요해 프로세스 선택은 자체 화면을 쓴다.
 """
 from typing import List, Optional, Any
 from prompt_toolkit import Application
