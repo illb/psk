@@ -12,7 +12,7 @@ def select_yes_no(
     default: bool = False,
     raise_on_cancel: bool = True
 ) -> Optional[bool]:
-    """Yes/No question. None when non-interactive, or on ESC unless raise_on_cancel (then CancelledError)."""
+    """Yes/No question. None on ESC unless raise_on_cancel (then CancelledError)."""
     return _select_yes_no(message, default=default, raise_on_cancel=raise_on_cancel)
 
 
@@ -21,7 +21,7 @@ def select_single(
     choices: List[tuple],
     default: Optional[Any] = None
 ) -> Optional[Any]:
-    """Single selection from (value, label) tuples. CancelledError on ESC, None when non-interactive."""
+    """Single selection from (value, label) tuples. CancelledError on ESC."""
     return _select_single(title, choices, default=default, raise_on_cancel=True)
 
 

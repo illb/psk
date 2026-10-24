@@ -2,13 +2,34 @@
 Simple selector for single/multiple selection with preview support
 """
 
-from typing import List, Optional, Any
+from typing import List, NoReturn, Optional, Any
 import sys
 
 from .item import SelectorItem
 from .config import SelectorConfig
 from .prompt import SelectorPrompt
 from ..exceptions import CancelledError
+
+NON_INTERACTIVE_EXIT_CODE = 2
+_MAX_LISTED_CANDIDATES = 50
+
+
+def exit_non_interactive(message: str, candidates: Optional[List[str]] = None) -> NoReturn:
+    """Cannot ask without a terminal: write guidance and candidates to stderr, then exit 2."""
+    lines = [message]
+    if candidates:
+        lines += [f"  {i}) {c}" for i, c in enumerate(candidates[:_MAX_LISTED_CANDIDATES], 1)]
+        if len(candidates) > _MAX_LISTED_CANDIDATES:
+            lines.append(f"  ... and {len(candidates) - _MAX_LISTED_CANDIDATES} more")
+    print("\n".join(lines), file=sys.stderr)
+    raise SystemExit(NON_INTERACTIVE_EXIT_CODE)
+
+
+def _exit_no_terminal(question: str, items: List[SelectorItem]) -> NoReturn:
+    exit_non_interactive(
+        f"[non-interactive] '{question}' needs an interactive terminal; pass the value as an argument or option. Candidates:",
+        [item.label for item in items],
+    )
 
 
 class Selector:
@@ -76,7 +97,7 @@ class Selector:
         )
 
         if not self._is_interactive_terminal():
-            return None
+            _exit_no_terminal(config.message, items)
 
         try:
             prompt = SelectorPrompt(items=items, config=config)
@@ -138,7 +159,7 @@ class Selector:
         )
 
         if not self._is_interactive_terminal():
-            return None
+            _exit_no_terminal(config.message, items)
 
         try:
             prompt = SelectorPrompt(items=items, config=config)

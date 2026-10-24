@@ -8,6 +8,7 @@ from prompt_toolkit import Application
 from prompt_toolkit.layout import Layout, Window, FormattedTextControl, HSplit
 
 from .selector import Selector, SelectorItem
+from .selector.selector import exit_non_interactive
 from .style import PromptStyle, PromptTheme, DEFAULT_STYLE
 from .exceptions import CancelledError
 from .policy import get_policy
@@ -69,6 +70,10 @@ def select_yes_no(
     """
     style = _current_style
     raise_on_cancel = raise_on_cancel if raise_on_cancel is not None else get_policy().nav.raise_on_cancel
+    if not Selector._is_interactive_terminal():
+        exit_non_interactive(
+            f"[non-interactive] '{message}' needs an interactive terminal; pass --yes if the command has it."
+        )
     if style.confirm_inline:
         result = _confirm_inline(message, default, style)
         if result is not None:

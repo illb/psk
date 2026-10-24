@@ -10,7 +10,6 @@ Usage:
 """
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 
 
@@ -94,7 +93,10 @@ def confirm_dangerous(
 
     Returns:
         True  → proceed
-        False → cancelled or blocked
+        False → cancelled
+
+    Raises:
+        SystemExit(2): non-interactive and the policy blocks it
     """
     from .policy import get_policy
 
@@ -112,7 +114,10 @@ def confirm_dangerous(
             return True
 
     # Non-interactive mode
-    if not sys.stdin.isatty():
+    # Circular import guard: selector imports policy
+    from ..selector.selector import Selector, exit_non_interactive
+
+    if not Selector._is_interactive_terminal():
         ni = (
             policy.non_interactive_danger
             if level == DangerLevel.DANGER
@@ -120,12 +125,7 @@ def confirm_dangerous(
         )
         if ni == "allow":
             return True
-        # block
-        print(
-            f"[danger] '{action}' on '{target}' requires interactive mode or --force.",
-            file=sys.stderr,
-        )
-        return False
+        exit_non_interactive(f"[danger] '{action}' on '{target}' requires interactive mode or --force.")
 
     # Policy says skip confirmation for this level
     if level == DangerLevel.WRITE  and not policy.confirm_write:

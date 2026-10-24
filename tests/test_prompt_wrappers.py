@@ -1,5 +1,7 @@
 """questionary_utils wrappers over the standard selector: number quick-select, toggles, empty selection, cancel."""
+import io
 import unittest
+from contextlib import redirect_stderr
 from unittest.mock import patch
 
 from prompt_toolkit.application import create_app_session
@@ -59,10 +61,13 @@ class NonInteractiveWrappers(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_returns_without_prompting(self):
-        self.assertIsNone(q.select_single("Pick", CHOICES))
-        self.assertEqual(q.select_checkbox("Pick", CHOICES), [])
-        self.assertIsNone(q.select_yes_no("Proceed?"))
+    def test_exits_2_without_prompting(self):
+        for ask in (lambda: q.select_single("Pick", CHOICES),
+                    lambda: q.select_checkbox("Pick", CHOICES),
+                    lambda: q.select_yes_no("Proceed?")):
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+                ask()
+            self.assertEqual(exc.exception.code, 2)
 
 
 if __name__ == "__main__":
