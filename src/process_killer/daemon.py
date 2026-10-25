@@ -2,16 +2,17 @@
 """
 psk cleanup daemon.
 
-Periodically runs the category killer over the always-safe categories
-(zombie, orphaned LSP and verified disconnected log followers by default) so leaks never
-accumulate. Designed to be supervised by launchd (see deploy/), but also runs
+Periodically runs the category killer over the default categories
+(zombie, orphaned LSP, verified disconnected log followers and Gradle/Kotlin
+daemons idle 1h+ across cycles) so leaks never accumulate. Designed to be supervised by launchd (see deploy/), but also runs
 standalone. Each cycle appends one summary line to a log file.
 
-The daemon deliberately never schedules the `gradle`, `codex`, or `claude`
-categories by default — those are manual-only, to avoid any risk of killing
-active build or AI sessions.
+The daemon deliberately never schedules the snapshot-based `gradle`, `codex`,
+or `claude` categories by default — those are manual-only, to avoid any risk of
+killing active build or AI sessions.
 """
 import os
+import json
 import signal
 import sys
 import time
@@ -20,10 +21,11 @@ from pathlib import Path
 from typing import List, Optional
 
 from .category_killer import CategoryKiller
+from .idle_tracker import IdleTracker
 
 DEFAULT_INTERVAL_SECONDS = 1800  # 30 minutes
 DEFAULT_LOG_PATH = "~/Library/Logs/psk-daemon.log"
-DEFAULT_CATEGORIES = ["zombie", "lsp", "orphan-tail"]
+DEFAULT_CATEGORIES = ["zombie", "lsp", "orphan-tail", "gradle-idle"]
 STALE_AI_CATEGORIES = ["codex", "claude"]
 
 _stop = False
@@ -34,7 +36,7 @@ def _handle_stop(signum, frame):
     _stop = True
 
 
-def _log(log_path: Optional[Path], message: str) -> None:
+def _log(log_path: Optional[Path], message: str, *, required: bool = False) -> None:
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} psk-daemon: {message}"
     print(line, flush=True)
     if log_path is None:
@@ -43,8 +45,11 @@ def _log(log_path: Optional[Path], message: str) -> None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
-    except OSError:
-        pass
+    except OSError as error:
+        if required:
+            # Do not let per-process OSError handlers mistake this for kill failure.
+            raise RuntimeError("audit log write failed") from error
+        print("psk-daemon: log file write failed", file=sys.stderr, flush=True)
 
 
 def _format_stale_ai_targets(targets) -> str:
@@ -72,15 +77,30 @@ def _run_cycle(
     log_path: Optional[Path],
     check_stale_ai: bool = True,
 ) -> None:
+    cycle_id = f"{os.getpid()}-{time.time_ns()}"
+    counts = {"attempt": 0, "sent": 0, "error": 0}
+
+    def audit(event):
+        _log(log_path, "audit " + json.dumps(
+            {**event, "cycle_id": cycle_id, "actor_pid": os.getpid()},
+            ensure_ascii=True, sort_keys=True), required=True)
+        if event.get("event") == "signal" and event.get("outcome") in counts:
+            counts[event["outcome"]] += 1
+
     try:
-        summary = CategoryKiller().kill_categories(
+        audit({"event": "cycle-start", "categories": categories})
+        killer = CategoryKiller(audit=audit, idle_tracker=IdleTracker())
+        summary = killer.kill_categories(
             categories, assume_yes=True, quiet=True)
+        audit({"event": "cycle-end", "status": "complete", "summary": summary,
+               "signals": counts.copy()})
     except Exception as e:  # a cycle must never crash the loop
-        _log(log_path, f"cycle error: {e}")
+        _log(log_path, f"cycle error: cycle_id={cycle_id} type={type(e).__name__}")
         return
     by = summary.get("by_category", {})
     detail = " ".join(f"{k}={by.get(k, 0)}" for k in categories)
-    _log(log_path, f"killed={summary.get('killed', 0)} targeted={summary.get('targeted', 0)} [{detail}]")
+    _log(log_path, f"killed={summary.get('killed', 0)} targeted={summary.get('targeted', 0)} "
+         f"reap_signals={summary.get('reap_signals', 0)} [{detail}]")
     if check_stale_ai:
         _check_stale_ai(log_path)
 

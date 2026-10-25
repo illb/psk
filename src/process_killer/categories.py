@@ -40,6 +40,9 @@ _GRADLE_DAEMON_MARKERS = (
 # CPU% below this counts as "idle" for daemon categories.
 _IDLE_CPU = 1.0
 
+# gradle-idle: no build-level CPU use observed for this long (see idle_tracker).
+GRADLE_IDLE_SECONDS = 3600
+
 # A codex/claude process is only a cleanup target if orphaned (PPID 1) or this
 # old — never a recent, actively-driven session.
 STALE_SECONDS = 3 * 86400  # 3 days
@@ -162,10 +165,8 @@ def _is_orphan_tail(proc: ProcessInfo) -> bool:
     return True
 
 
-def _is_idle_gradle(proc: ProcessInfo) -> bool:
+def is_gradle_daemon_jvm(proc: ProcessInfo) -> bool:
     if _is_zombie(proc):
-        return False
-    if proc.cpu >= _IDLE_CPU:
         return False
     command = (proc.command or "").lower()
     first = command.split()[0] if command.split() else ""
@@ -173,6 +174,15 @@ def _is_idle_gradle(proc: ProcessInfo) -> bool:
     if base not in {"java", "java.exe"}:
         return False
     return any(marker in command for marker in _GRADLE_DAEMON_MARKERS)
+
+
+def _is_idle_gradle(proc: ProcessInfo) -> bool:
+    return proc.cpu < _IDLE_CPU and is_gradle_daemon_jvm(proc)
+
+
+def _is_long_idle_gradle(proc: ProcessInfo) -> bool:
+    return (_is_idle_gradle(proc) and proc.idle_seconds is not None
+            and proc.idle_seconds >= GRADLE_IDLE_SECONDS)
 
 
 @dataclass(frozen=True)
@@ -219,6 +229,15 @@ CATEGORIES: List[KillCategory] = [
                     "Manual cleanup only because active builds can briefly look idle.",
         strategy="terminate",
         matcher=_is_idle_gradle,
+    ),
+    KillCategory(
+        key="gradle-idle",
+        label="Long-idle Gradle/Kotlin daemons",
+        description="Gradle / Kotlin daemon JVMs with no build-level CPU use for 1h+, "
+                    "tracked across cycles. Active build trees are protected.",
+        strategy="terminate",
+        matcher=_is_long_idle_gradle,
+        reason=lambda proc: f"no build CPU for {(proc.idle_seconds or 0) // 60}m",
     ),
     KillCategory(
         key="codex",

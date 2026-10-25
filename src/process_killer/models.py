@@ -16,6 +16,9 @@ class ProcessInfo(BaseModel):
     start: str = Field(..., description="Start time")
     uptime: str = Field(..., description="Uptime")
     etime_seconds: int = Field(default=0, description="Elapsed running time in seconds")
+    cpu_time_seconds: float = Field(default=0.0, description="Cumulative CPU time in seconds")
+    idle_seconds: Optional[int] = Field(
+        default=None, description="Seconds without build-level CPU use, observed across cycles")
     command: str = Field(..., description="Full command")
     name: str = Field(..., description="Formatted process name")
     type: str = Field(..., description="Process type")

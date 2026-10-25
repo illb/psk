@@ -36,6 +36,7 @@ session invoking it.
 | `lsp`    | Orphaned language servers (PPID 1): leaked serena/pyright/ts/kotlin  | safe |
 | `orphan-tail` | PPID 1 follow-mode tail, 커널에서 stdout 파이프 peer 없음 + EOF 확인 | verified auto |
 | `gradle` | Idle Gradle / Kotlin daemon JVMs (CPU < 1%)                  | manual |
+| `gradle-idle` | Gradle / Kotlin daemons with no build CPU for 1h+ (cumulative CPU compared across runs) | daemon auto |
 | `codex`  | OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old | orphan/stale only |
 | `claude` | Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old  | orphan/stale only |
 
@@ -49,9 +50,10 @@ and asks before terminating unless the user explicitly approved `--yes`.
 
 ## Cleanup daemon
 
-A LaunchAgent (`com.illb.psk-daemon`) runs the verified cleanup set (`zombie,lsp,orphan-tail`)
-every 30 minutes and at login/boot. `gradle` is manual-only by default because
-active builds can briefly look idle while tasks hand off between daemon JVMs.
+A LaunchAgent (`com.illb.psk-daemon`) runs the verified cleanup set (`zombie,lsp,orphan-tail,gradle-idle`)
+every 30 minutes and at login/boot. Snapshot `gradle` is manual-only because active builds can
+briefly look idle while tasks hand off between daemon JVMs; `gradle-idle` instead needs 1h without
+build-level CPU growth between observations (state: `~/.local/state/psk/gradle-idle.json`).
 
 ```bash
 launchctl list | grep com.illb.psk-daemon          # is it loaded? (status 0 = ok)

@@ -11,7 +11,7 @@ import os
 import signal
 import sys
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
@@ -19,6 +19,7 @@ from rich.table import Table
 
 from .categories import CATEGORIES, CATEGORY_BY_KEY, KillCategory, category_keys
 from .collector import ProcessCollector
+from .idle_tracker import IdleTracker
 from .models import ProcessInfo
 from ..common.exceptions import CancelledError
 from ..common.questionary_utils import select_checkbox, select_yes_no
@@ -26,13 +27,53 @@ from ..common.questionary_utils import select_checkbox, select_yes_no
 console = Console()
 
 _TERM_GRACE_SECONDS = 2.0
+_JVM_ROLES = {
+    "org.gradle.launcher.daemon.bootstrap.GradleDaemon": "gradle-daemon",
+    "org.gradle.wrapper.GradleWrapperMain": "gradle-wrapper",
+    "org.gradle.launcher.GradleMain": "gradle-launcher",
+    "org.gradle.launcher.GradleMainBootstrap": "gradle-launcher",
+    "org.jetbrains.kotlin.daemon.KotlinCompileDaemon": "kotlin-daemon",
+}
 
 
 class CategoryKiller:
     """Collect processes, match them to categories, and terminate them."""
 
-    def __init__(self):
+    def __init__(self, audit: Optional[Callable[[dict], None]] = None,
+                 idle_tracker: Optional[IdleTracker] = None):
         self.collector = ProcessCollector()
+        self.audit = audit
+        self.idle_tracker = idle_tracker
+        self._categories: Dict[int, str] = {}
+
+    def _audit(self, proc: ProcessInfo, event: str, **details) -> None:
+        if self.audit is None:
+            return
+        # Never persist command arguments: they can contain credentials or paths.
+        tokens = (proc.command or "").split()
+        executable = os.path.basename(tokens[0])[:80] if tokens else "unknown"
+        self.audit({
+            "event": event, "actor_pid": os.getpid(), "process_pid": proc.pid,
+            "ppid": proc.ppid, "category": self._categories.get(proc.pid, "unknown"),
+            "executable": executable,
+            "jvm_role": self._jvm_role(proc),
+            **details,
+        })
+
+    @staticmethod
+    def _jvm_role(proc: ProcessInfo) -> Optional[str]:
+        return next((_JVM_ROLES[token] for token in (proc.command or "").split()
+                     if token in _JVM_ROLES), None)
+
+    def _send_signal(self, proc: ProcessInfo, pid: int, sig: signal.Signals) -> None:
+        self._audit(proc, "signal", target_pid=pid, signal=sig.name, outcome="attempt")
+        try:
+            os.kill(pid, sig)
+        except OSError as error:
+            self._audit(proc, "signal", target_pid=pid, signal=sig.name,
+                        outcome="error", errno=error.errno)
+            raise
+        self._audit(proc, "signal", target_pid=pid, signal=sig.name, outcome="sent")
 
     # ---- public entry point -------------------------------------------------
 
@@ -114,17 +155,32 @@ class CategoryKiller:
             return []
         valid = [k for k in keys if k in CATEGORY_BY_KEY]
         matches = self._match_all(processes)
-        return self._collect_targets(valid, matches)
+        targets = self._collect_targets(valid, matches)
+        if self.audit is not None:
+            selected = {proc.pid: category.key for proc, category in targets}
+            for proc in processes:
+                if self._jvm_role(proc):
+                    self._audit(proc, "gradle-decision", selected=proc.pid in selected,
+                                category=selected.get(proc.pid), enabled_categories=valid,
+                                idle_seconds=proc.idle_seconds,
+                                reason="enabled-category-match" if proc.pid in selected
+                                else "no-enabled-category-match")
+        return targets
 
     # ---- matching -----------------------------------------------------------
 
     def _match_all(self, processes: List[ProcessInfo]) -> Dict[str, List[ProcessInfo]]:
         """Return {category_key: [matching processes]} for every category."""
+        if self.idle_tracker is not None:
+            self.idle_tracker.annotate(processes)
         excluded = self._self_and_ancestors()
-        excluded |= self._active_gradle_build_pids(processes)
+        active_build = self._active_gradle_build_pids(processes)
         result: Dict[str, List[ProcessInfo]] = {c.key: [] for c in CATEGORIES}
         for proc in processes:
-            if proc.pid in excluded:
+            if proc.pid in excluded or proc.pid in active_build:
+                if self.audit is not None and self._jvm_role(proc):
+                    self._audit(proc, "protected", reason="self-or-ancestor"
+                                if proc.pid in excluded else "active-gradle-build")
                 continue
             for category in CATEGORIES:
                 if category.matcher(proc):
@@ -254,17 +310,20 @@ class CategoryKiller:
     ) -> dict:
         terminate = [p for p, c in targets if c.strategy == "terminate"]
         reap = [p for p, c in targets if c.strategy == "reap_parent"]
+        self._categories = {p.pid: c.key for p, c in targets}
+        for proc, category in targets:
+            self._audit(proc, "selected", strategy=category.strategy)
 
         killed = 0
         if terminate:
             killed += self._terminate(terminate, assume_yes, quiet=quiet)
-        if reap:
-            killed += self._reap_parents(reap, quiet=quiet)
+        reap_signals = self._reap_parents(reap, quiet=quiet) if reap else 0
 
         by_category: dict = {}
         for _, category in targets:
             by_category[category.key] = by_category.get(category.key, 0) + 1
-        return {"targeted": len(targets), "killed": killed, "by_category": by_category}
+        return {"targeted": len(targets), "killed": killed,
+                "reap_signals": reap_signals, "by_category": by_category}
 
     def _terminate(self, procs: List[ProcessInfo], assume_yes: bool,
                    quiet: bool = False) -> int:
@@ -273,9 +332,11 @@ class CategoryKiller:
         sent = []
         for proc in procs:
             if proc.tail_identity is not None and not CATEGORY_BY_KEY["orphan-tail"].matcher(proc):
+                self._audit(proc, "signal", target_pid=proc.pid, signal="SIGTERM",
+                            outcome="skipped", reason="tail-recheck-failed")
                 continue
             try:
-                os.kill(proc.pid, signal.SIGTERM)
+                self._send_signal(proc, proc.pid, signal.SIGTERM)
                 sent.append(proc)
             except OSError as e:
                 if not quiet:
@@ -286,6 +347,10 @@ class CategoryKiller:
         time.sleep(_TERM_GRACE_SECONDS)
 
         survivors = [p for p in sent if self._alive(p.pid)]
+        survivor_pids = {p.pid for p in survivors}
+        for proc in sent:
+            self._audit(proc, "observed", signal="SIGTERM",
+                        alive=proc.pid in survivor_pids)
         terminated = len(sent) - len(survivors)
         if not quiet:
             console.print(f"[green]✓[/green] {terminated} terminated by SIGTERM.")
@@ -297,22 +362,33 @@ class CategoryKiller:
             console.print(f"[yellow]{len(survivors)} still alive:[/yellow] "
                           + ", ".join(str(p.pid) for p in survivors))
         if not self._confirm_force(assume_yes):
+            for proc in survivors:
+                self._audit(proc, "signal", target_pid=proc.pid, signal="SIGKILL",
+                            outcome="skipped", reason="not-confirmed")
             if not quiet:
                 console.print("[yellow]Left survivors running.[/yellow]")
             return terminated
 
         if not quiet:
             console.print("[blue]Sending SIGKILL...[/blue]")
+        forced = []
         for proc in survivors:
             if proc.tail_identity is not None and not CATEGORY_BY_KEY["orphan-tail"].matcher(proc):
+                self._audit(proc, "signal", target_pid=proc.pid, signal="SIGKILL",
+                            outcome="skipped", reason="tail-recheck-failed")
                 continue
             try:
-                os.kill(proc.pid, signal.SIGKILL)
+                self._send_signal(proc, proc.pid, signal.SIGKILL)
+                forced.append(proc)
             except OSError as e:
                 if not quiet:
                     console.print(f"[red]✗[/red] PID {proc.pid}: {e}")
         time.sleep(0.5)
-        force_killed = sum(1 for p in survivors if not self._alive(p.pid))
+        force_killed = 0
+        for proc in forced:
+            alive = self._alive(proc.pid)
+            self._audit(proc, "observed", signal="SIGKILL", alive=alive)
+            force_killed += not alive
         if not quiet:
             console.print(f"[green]✓[/green] {force_killed}/{len(survivors)} force-killed.")
         return terminated + force_killed
@@ -320,17 +396,24 @@ class CategoryKiller:
     def _reap_parents(self, zombies: List[ProcessInfo], quiet: bool = False) -> int:
         if not quiet:
             console.print("\n[blue]Nudging parents of zombie processes (SIGCHLD)...[/blue]")
-        parents = set()
+        parents = {}
         for proc in zombies:
             try:
-                parents.add(int(proc.ppid))
+                ppid = int(proc.ppid)
             except (ValueError, TypeError):
+                self._audit(proc, "signal", signal="SIGCHLD", outcome="skipped",
+                            reason="invalid-parent")
                 continue
-        parents.discard(0)
-        parents.discard(1)  # launchd: nothing we can do
-        for ppid in parents:
+            if ppid <= 1:
+                self._audit(proc, "signal", target_pid=ppid, signal="SIGCHLD",
+                            outcome="skipped", reason="init-parent")
+                continue
+            parents.setdefault(ppid, proc)
+        signalled = 0
+        for ppid, proc in parents.items():
             try:
-                os.kill(ppid, signal.SIGCHLD)
+                self._send_signal(proc, ppid, signal.SIGCHLD)
+                signalled += 1
                 if not quiet:
                     console.print(f"[green]✓[/green] SIGCHLD -> parent PID {ppid}")
             except OSError as e:
@@ -341,7 +424,7 @@ class CategoryKiller:
                 f"[dim]{len(zombies)} zombie(s) flagged. Zombies clear once their "
                 f"parent reaps them; if a parent is stuck, kill the parent instead.[/dim]"
             )
-        return len(zombies)
+        return signalled
 
     def _confirm_force(self, assume_yes: bool) -> bool:
         if assume_yes:

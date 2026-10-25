@@ -55,6 +55,9 @@ Categories:
 - `lsp` — orphaned language servers (PPID 1): leaked serena / pyright / typescript / kotlin LSPs
 - `orphan-tail` — PPID 1인 `tail -f` / `tail -F` 중 stdout 파이프의 소비자 연결 종료를 커널에서 확인한 프로세스
 - `gradle` — idle Gradle / Kotlin daemon JVMs (CPU < 1%); manual cleanup only, because active builds can briefly look idle
+- `gradle-idle` — Gradle / Kotlin daemon JVMs with no build-level CPU use for 1h+. Cumulative CPU time is
+  compared across runs (`~/.local/state/psk/gradle-idle.json`), so a daemon matches only after two observations
+  an hour apart; active build trees stay protected
 - `codex` — OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old
 - `claude` — Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old
 
@@ -83,9 +86,9 @@ before termination unless `--yes` is explicitly passed.
 ## Cleanup daemon (`psk daemon`)
 
 Run a periodic background cleanup so leaks never accumulate. Installed as a
-macOS LaunchAgent (`com.illb.psk-daemon`), it runs the safe set
-(`zombie,lsp,orphan-tail`) every 30 minutes and at login/boot. `gradle`, `codex`, and
-`claude` are intentionally excluded from daemon termination by default. The
+macOS LaunchAgent (`com.illb.psk-daemon`), it runs
+`zombie,lsp,orphan-tail,gradle-idle` every 30 minutes and at login/boot. The snapshot-based
+`gradle`, `codex`, and `claude` are intentionally excluded from daemon termination by default. The
 daemon may report clearly stale AI candidates in the log, but cleanup stays
 manual via `psk stale-ai` so the user can confirm first.
 
@@ -100,7 +103,8 @@ tail -n 20 ~/Library/Logs/psk-daemon.log
 
 # run standalone (no launchd):
 psk daemon --once                          # one cycle, then exit
-psk daemon --interval 1800 -c zombie,lsp,orphan-tail
+psk daemon --interval 1800 -c zombie,lsp,orphan-tail,gradle-idle
+psk kill -c gradle-idle --dry-run          # daemons idle 1h+ by cross-run CPU time
 psk kill -c orphan-tail --dry-run          # 연결이 끊긴 stdout 파이프 검증 결과
 psk kill -c gradle --dry-run               # inspect idle Gradle/Kotlin daemon candidates manually
 psk daemon --no-check-stale-ai             # disable codex/claude stale reporting
@@ -114,6 +118,25 @@ SIGTERM/SIGKILL 직전에도 시작 시각과 파이프 식별자, 연결 상태
 
 Configure via env before install: `PSK_DAEMON_INTERVAL` (seconds),
 `PSK_DAEMON_CATEGORIES` (comma-separated).
+
+### 데몬 종료 감사 로그
+
+- 기본 경로: `~/Library/Logs/psk-daemon.log`. `--log`로 변경한다.
+- `audit` 뒤 JSON에는 실행 주체 PID, 대상 PID/PPID, 카테고리, 실행 파일명,
+  알려진 Gradle/Kotlin JVM 역할, 신호 및 시도/전송/실패/재검증 보류 결과를 기록한다.
+  명령 인자와 환경 변수는 자격 증명 유출을 막기 위해 저장하지 않는다.
+- `observed`는 신호 전송 후 PID 생존 여부이며, OS 수준 종료 원인 증명은 아니다.
+- `cycle-start`와 `cycle-end`는 같은 `cycle_id`로 연결된다. 완료 기록의 `signals`는
+  실제 신호 시도/전송/실패 횟수다. 완료 기록이 없으면 중간에 끊긴 주기로 취급한다.
+- `gradle-decision`은 스캔 당시 알려진 Gradle/Kotlin PID별 선정 여부·활성 카테고리·`idle_seconds`를
+  기록한다. 빌드 트리 보호로 제외한 경우 `protected`와 `active-gradle-build`도 남긴다.
+  이 기록은 해당 스냅샷의 판단이며, 이후 생긴 PID나 과거 중단까지 증명하지 않는다.
+- 감사 파일 쓰기 실패 시 정리를 중단한다. 신호 시도 기록을 쓰기 전에는 신호를 보내지 않는다.
+- `killed`는 종료 신호 후 사라진 일반 프로세스 수다. 좀비는 포함하지 않는다.
+  `reap_signals`는 부모에게 실제 보낸 SIGCHLD 횟수이며 좀비 회수 완료 수가 아니다.
+- 데몬 신호만 이 파일에 감사 기록을 남긴다. 수동 CLI 실행 및 다른 도구의 종료는 포함하지 않는다.
+- 현재 파일은 append-only다. 크기/기간별 회전, 최대 보관 개수, 자동 삭제 정책은 없다.
+  launchd의 `.out`에는 같은 출력이 중복 저장되고 `.err`도 자동 회전되지 않는다.
 
 ## Global skill
 

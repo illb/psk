@@ -73,6 +73,22 @@ class ProcessCollector:
         except (ValueError, AttributeError):
             return 0
 
+    @staticmethod
+    def _parse_cpu_time(value: str) -> float:
+        """Parse ps TIME ([dd-][hh:]mm:ss[.ss], minutes may exceed 59) into seconds."""
+        try:
+            days = 0
+            rest = value
+            if '-' in rest:
+                day_str, rest = rest.split('-', 1)
+                days = int(day_str)
+            total = 0.0
+            for part in rest.split(':'):
+                total = total * 60 + float(part)
+            return days * 86400 + total
+        except (ValueError, AttributeError):
+            return 0.0
+
     def get_process_info(self) -> List[ProcessInfo]:
         """Collect process information from system and return as ProcessInfo list"""
         try:
@@ -132,6 +148,7 @@ class ProcessCollector:
                         name=process_name or 'unknown',
                         type=process_type or 'unknown',
                         etime_seconds=etime_map.get(pid, 0),
+                        cpu_time_seconds=self._parse_cpu_time(time_str),
                         selected=False
                     )
                     processes.append(process_info)

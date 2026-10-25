@@ -8,6 +8,7 @@ from rich.console import Console
 
 from ..common.cli_utils import initialize_cli
 from ..process_killer import ProcessKiller, CategoryKiller
+from ..process_killer.idle_tracker import IdleTracker
 from ..process_killer.daemon import (
     run_daemon,
     DEFAULT_INTERVAL_SECONDS,
@@ -78,6 +79,7 @@ def kill(
     - zombie: Defunct (Z) processes — parent nudged to reap them
     - lsp:    Orphaned language servers (PPID 1) — leaked serena/pyright/ts/kotlin LSPs
     - gradle: Idle Gradle/Kotlin build daemons (CPU < 1%)
+    - gradle-idle: Gradle/Kotlin daemons with no build CPU for 1h+ (tracked across runs)
 
     Examples:
       psk kill                      # interactive: check categories, confirm
@@ -90,7 +92,7 @@ def kill(
     if category:
         keys = [k.strip() for k in category.split(",") if k.strip()]
 
-    CategoryKiller().run(
+    CategoryKiller(idle_tracker=IdleTracker()).run(
         category_keys_selected=keys,
         assume_yes=yes,
         dry_run=dry_run,
@@ -206,8 +208,8 @@ def daemon(
     """
     Run the periodic cleanup daemon.
 
-    Each cycle silently terminates the given categories (default: zombie, lsp,
-    gradle) and appends a summary line to the log. Intended to be supervised by
+    Each cycle processes zombie, lsp, orphan-tail and gradle-idle by default and appends
+    signal audit records and a summary to the log. Intended to be supervised by
     launchd (see deploy/install-daemon.sh) but runnable standalone.
 
     Note: `codex`/`claude` are intentionally NOT auto-terminated. The daemon
