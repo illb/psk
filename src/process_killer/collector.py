@@ -152,11 +152,21 @@ class ProcessCollector:
                         selected=False
                     )
                     processes.append(process_info)
-            
+
+            self._count_live_children(processes)
             return processes
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Failed to retrieve process information: {e}[/red]")
             return []
+
+    @staticmethod
+    def _count_live_children(processes: List[ProcessInfo]) -> None:
+        counts: dict = {}
+        for proc in processes:
+            if "Z" not in (proc.stat or ""):
+                counts[proc.ppid] = counts.get(proc.ppid, 0) + 1
+        for proc in processes:
+            proc.live_children = counts.get(str(proc.pid), 0)
 
     def format_process_name(self, command: str) -> str:
         """

@@ -58,7 +58,8 @@ Categories:
 - `gradle-idle` — Gradle / Kotlin daemon JVMs with no build-level CPU use for 1h+. Cumulative CPU time is
   compared across runs (`~/.local/state/psk/gradle-idle.json`), so a daemon matches only after two observations
   an hour apart; active build trees stay protected
-- `codex` — OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old
+- `codex` — OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old. `codex app-server`
+  (daemon supervisor / server) is a long-lived service: only an orphaned one with no live children matches
 - `claude` — Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old
 
 `codex` / `claude` never match a recent, actively-driven session — only leaks

@@ -56,6 +56,10 @@ _CODEX_MARKERS = (
     "codex.app",
 )
 
+# Codex app-server is a long-lived service: a leak only when orphaned with no live children.
+_CODEX_APP_SERVER_MARKER = "codex app-server"
+
+
 def _is_zombie(proc: ProcessInfo) -> bool:
     return "Z" in (proc.stat or "")
 
@@ -64,7 +68,13 @@ def _is_orphan_or_stale(proc: ProcessInfo) -> bool:
     return proc.ppid == "1" or proc.etime_seconds >= STALE_SECONDS
 
 
+def _is_codex_app_server(proc: ProcessInfo) -> bool:
+    return _CODEX_APP_SERVER_MARKER in (proc.command or "").lower()
+
+
 def _orphan_or_stale_reason(proc: ProcessInfo) -> str:
+    if _is_codex_app_server(proc):
+        return "orphaned app-server: PPID 1; no live children"
     reasons = []
     if proc.ppid == "1":
         reasons.append("orphaned: PPID 1")
@@ -79,6 +89,8 @@ def _is_codex_leak(proc: ProcessInfo) -> bool:
     command = (proc.command or "").lower()
     if not any(marker in command for marker in _CODEX_MARKERS):
         return False
+    if _is_codex_app_server(proc):
+        return proc.ppid == "1" and proc.live_children == 0
     return _is_orphan_or_stale(proc)
 
 

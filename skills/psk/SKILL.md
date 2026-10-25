@@ -37,7 +37,7 @@ session invoking it.
 | `orphan-tail` | PPID 1 follow-mode tail, 커널에서 stdout 파이프 peer 없음 + EOF 확인 | verified auto |
 | `gradle` | Idle Gradle / Kotlin daemon JVMs (CPU < 1%)                  | manual |
 | `gradle-idle` | Gradle / Kotlin daemons with no build CPU for 1h+ (cumulative CPU compared across runs) | daemon auto |
-| `codex`  | OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old | orphan/stale only |
+| `codex`  | OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old; `codex app-server` only when orphaned with no live children | orphan/stale only |
 | `claude` | Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old  | orphan/stale only |
 
 `codex` / `claude` never match a recent, actively-driven session — only leaks
