@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Cross-cycle idle tracking for Gradle / Kotlin daemon JVMs: a CPU% snapshot cannot
-tell idle from a task hand-off, so cumulative CPU time is compared between
-observations. `idle_seconds` stays None until a daemon has been seen twice.
+Cross-cycle idle tracking for Gradle / Kotlin daemon JVMs and serena language servers:
+a CPU% snapshot cannot tell idle from a task hand-off, so cumulative CPU time is
+compared between observations. `idle_seconds` stays None until a process has been seen twice.
 """
 import json
 import os
@@ -10,10 +10,10 @@ import time
 from pathlib import Path
 from typing import Callable, List
 
-from .categories import is_gradle_daemon_jvm
+from .categories import is_gradle_daemon_jvm, is_serena_language_server
 from .models import ProcessInfo
 
-DEFAULT_STATE_PATH = "~/.local/state/psk/gradle-idle.json"
+DEFAULT_STATE_PATH = "~/.local/state/psk/idle.json"
 ACTIVE_CPU_SECONDS_PER_HOUR = 10.0
 MIN_ACTIVE_CPU_SECONDS = 1.0
 ACTIVE_CPU_PERCENT = 1.0
@@ -42,12 +42,12 @@ class IdleTracker:
             pass
 
     def annotate(self, processes: List[ProcessInfo]) -> None:
-        """Set `idle_seconds` on Gradle/Kotlin daemons and persist observations."""
+        """Set `idle_seconds` on tracked processes and persist observations."""
         now = self.clock()
         previous = self._load()
         current = {}
         for proc in processes:
-            if not is_gradle_daemon_jvm(proc):
+            if not (is_gradle_daemon_jvm(proc) or is_serena_language_server(proc)):
                 continue
             start = now - proc.etime_seconds
             prev = previous.get(str(proc.pid))

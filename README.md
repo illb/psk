@@ -56,8 +56,10 @@ Categories:
 - `orphan-tail` — PPID 1인 `tail -f` / `tail -F` 중 stdout 파이프의 소비자 연결 종료를 커널에서 확인한 프로세스
 - `gradle` — idle Gradle / Kotlin daemon JVMs (CPU < 1%); manual cleanup only, because active builds can briefly look idle
 - `gradle-idle` — Gradle / Kotlin daemon JVMs with no build-level CPU use for 1h+. Cumulative CPU time is
-  compared across runs (`~/.local/state/psk/gradle-idle.json`), so a daemon matches only after two observations
+  compared across runs (`~/.local/state/psk/idle.json`), so a daemon matches only after two observations
   an hour apart; active build trees stay protected
+- `lsp-oversize` — serena-managed language servers (`~/.serena/language_servers/`, parent alive) at 3GB+
+  macOS footprint and idle 30m+ across runs. Serena starts a fresh one on its next tool call
 - `codex` — OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old. `codex app-server`
   (daemon supervisor / server) is a long-lived service: only an orphaned one with no live children matches
 - `claude` — Claude Code CLI processes that are orphaned (PPID 1) or ≥ 3 days old
@@ -88,7 +90,7 @@ before termination unless `--yes` is explicitly passed.
 
 Run a periodic background cleanup so leaks never accumulate. Installed as a
 macOS LaunchAgent (`com.illb.psk-daemon`), it runs
-`zombie,lsp,orphan-tail,gradle-idle` every 30 minutes and at login/boot. The snapshot-based
+`zombie,lsp,lsp-oversize,orphan-tail,gradle-idle` every 30 minutes and at login/boot. The snapshot-based
 `gradle`, `codex`, and `claude` are intentionally excluded from daemon termination by default. The
 daemon may report clearly stale AI candidates in the log, but cleanup stays
 manual via `psk stale-ai` so the user can confirm first.
@@ -104,7 +106,8 @@ tail -n 20 ~/Library/Logs/psk-daemon.log
 
 # run standalone (no launchd):
 psk daemon --once                          # one cycle, then exit
-psk daemon --interval 1800 -c zombie,lsp,orphan-tail,gradle-idle
+psk daemon --interval 1800 -c zombie,lsp,lsp-oversize,orphan-tail,gradle-idle
+psk kill -c lsp-oversize --dry-run         # oversized idle serena language servers
 psk kill -c gradle-idle --dry-run          # daemons idle 1h+ by cross-run CPU time
 psk kill -c orphan-tail --dry-run          # 연결이 끊긴 stdout 파이프 검증 결과
 psk kill -c gradle --dry-run               # inspect idle Gradle/Kotlin daemon candidates manually

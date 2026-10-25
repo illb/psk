@@ -3,8 +3,9 @@
 psk cleanup daemon.
 
 Periodically runs the category killer over the default categories
-(zombie, orphaned LSP, verified disconnected log followers and Gradle/Kotlin
-daemons idle 1h+ across cycles) so leaks never accumulate. Designed to be supervised by launchd (see deploy/), but also runs
+(zombie, orphaned LSP, oversized idle serena language servers, verified
+disconnected log followers and Gradle/Kotlin daemons idle 1h+ across cycles) so
+leaks never accumulate. Designed to be supervised by launchd (see deploy/), but also runs
 standalone. Each cycle appends one summary line to a log file.
 
 The daemon deliberately never schedules the snapshot-based `gradle`, `codex`,
@@ -25,7 +26,7 @@ from .idle_tracker import IdleTracker
 
 DEFAULT_INTERVAL_SECONDS = 1800  # 30 minutes
 DEFAULT_LOG_PATH = "~/Library/Logs/psk-daemon.log"
-DEFAULT_CATEGORIES = ["zombie", "lsp", "orphan-tail", "gradle-idle"]
+DEFAULT_CATEGORIES = ["zombie", "lsp", "lsp-oversize", "orphan-tail", "gradle-idle"]
 STALE_AI_CATEGORIES = ["codex", "claude"]
 
 _stop = False

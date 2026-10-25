@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import shlex
 from typing import Callable, List, Optional
 
+from .footprint import footprint_kb
 from .models import ProcessInfo
 from .tail_output import disconnected_tail_identity
 
@@ -42,6 +43,11 @@ _IDLE_CPU = 1.0
 
 # gradle-idle: no build-level CPU use observed for this long (see idle_tracker).
 GRADLE_IDLE_SECONDS = 3600
+
+# Serena restarts its language server on the next tool call, so an oversized idle one is restarted.
+_SERENA_LS_MARKER = "/.serena/language_servers/"
+LSP_OVERSIZE_KB = 3 * 1024 * 1024
+LSP_OVERSIZE_IDLE_SECONDS = 1800
 
 # A codex/claude process is only a cleanup target if orphaned (PPID 1) or this
 # old — never a recent, actively-driven session.
@@ -192,6 +198,24 @@ def _is_idle_gradle(proc: ProcessInfo) -> bool:
     return proc.cpu < _IDLE_CPU and is_gradle_daemon_jvm(proc)
 
 
+def is_serena_language_server(proc: ProcessInfo) -> bool:
+    return not _is_zombie(proc) and _SERENA_LS_MARKER in (proc.command or "").lower()
+
+
+def _is_oversize_serena_lsp(proc: ProcessInfo) -> bool:
+    if proc.ppid == "1" or proc.cpu >= _IDLE_CPU or not is_serena_language_server(proc):
+        return False
+    if proc.idle_seconds is None or proc.idle_seconds < LSP_OVERSIZE_IDLE_SECONDS:
+        return False
+    proc.footprint_kb = footprint_kb(proc.pid)
+    return proc.footprint_kb is not None and proc.footprint_kb >= LSP_OVERSIZE_KB
+
+
+def _oversize_reason(proc: ProcessInfo) -> str:
+    return (f"footprint {(proc.footprint_kb or 0) / 1048576:.1f}G >= "
+            f"{LSP_OVERSIZE_KB / 1048576:g}G; idle {(proc.idle_seconds or 0) // 60}m")
+
+
 def _is_long_idle_gradle(proc: ProcessInfo) -> bool:
     return (_is_idle_gradle(proc) and proc.idle_seconds is not None
             and proc.idle_seconds >= GRADLE_IDLE_SECONDS)
@@ -233,6 +257,15 @@ CATEGORIES: List[KillCategory] = [
         strategy="terminate",
         matcher=_is_orphan_tail,
         reason=lambda proc: "PPID 1; stdout pipe has no peer and is at EOF",
+    ),
+    KillCategory(
+        key="lsp-oversize",
+        label="Oversized idle serena language servers",
+        description="Serena-managed language servers (parent alive) at 3GB+ footprint and idle "
+                    "30m+. Serena starts a fresh one on its next tool call.",
+        strategy="terminate",
+        matcher=_is_oversize_serena_lsp,
+        reason=_oversize_reason,
     ),
     KillCategory(
         key="gradle",

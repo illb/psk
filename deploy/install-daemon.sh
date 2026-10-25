@@ -18,7 +18,7 @@ AGENTS_DIR="$HOME/Library/LaunchAgents"
 PLIST="$AGENTS_DIR/$LABEL.plist"
 
 INTERVAL="${PSK_DAEMON_INTERVAL:-1800}"
-CATEGORIES="${PSK_DAEMON_CATEGORIES:-zombie,lsp,orphan-tail,gradle-idle}"
+CATEGORIES="${PSK_DAEMON_CATEGORIES:-zombie,lsp,lsp-oversize,orphan-tail,gradle-idle}"
 
 if [ ! -x "$PSK_BIN" ]; then
     echo "Error: $PSK_BIN not found."
