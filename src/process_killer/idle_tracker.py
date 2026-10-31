@@ -10,11 +10,13 @@ import time
 from pathlib import Path
 from typing import Callable, List
 
-from .categories import is_gradle_daemon_jvm, is_serena_language_server
+from .categories import is_gradle_daemon_jvm, is_kotlin_daemon_jvm, is_serena_language_server
 from .models import ProcessInfo
 
 DEFAULT_STATE_PATH = "~/.local/state/psk/idle.json"
 ACTIVE_CPU_SECONDS_PER_HOUR = 10.0
+# Idle Kotlin compile daemons spend up to ~15 cpu-s/hour on housekeeping; a compile spends far more.
+KOTLIN_ACTIVE_CPU_SECONDS_PER_HOUR = 30.0
 MIN_ACTIVE_CPU_SECONDS = 1.0
 ACTIVE_CPU_PERCENT = 1.0
 _START_TOLERANCE_SECONDS = 5
@@ -55,7 +57,9 @@ class IdleTracker:
             since = now
             if same:
                 window = max(now - prev["seen"], 1.0)
-                threshold = max(MIN_ACTIVE_CPU_SECONDS, ACTIVE_CPU_SECONDS_PER_HOUR * window / 3600)
+                rate = (KOTLIN_ACTIVE_CPU_SECONDS_PER_HOUR if is_kotlin_daemon_jvm(proc)
+                        else ACTIVE_CPU_SECONDS_PER_HOUR)
+                threshold = max(MIN_ACTIVE_CPU_SECONDS, rate * window / 3600)
                 active = (proc.cpu_time_seconds - prev["cpu"] > threshold
                           or proc.cpu >= ACTIVE_CPU_PERCENT)
                 since = now if active else prev["since"]

@@ -33,9 +33,10 @@ _LSP_MARKERS = (
 )
 
 # Java main classes that identify Gradle / Kotlin daemon processes.
+_KOTLIN_DAEMON_MARKER = "org.jetbrains.kotlin.daemon.kotlincompiledaemon"
 _GRADLE_DAEMON_MARKERS = (
     "org.gradle.launcher.daemon.bootstrap.gradledaemon",
-    "org.jetbrains.kotlin.daemon.kotlincompiledaemon",
+    _KOTLIN_DAEMON_MARKER,
 )
 
 # CPU% below this counts as "idle" for daemon categories.
@@ -43,6 +44,9 @@ _IDLE_CPU = 1.0
 
 # gradle-idle: no build-level CPU use observed for this long (see idle_tracker).
 GRADLE_IDLE_SECONDS = 3600
+
+# kotlin-idle: the Kotlin Gradle plugin starts a fresh compile daemon on demand.
+KOTLIN_IDLE_SECONDS = 1800
 
 # Serena restarts its language server on the next tool call, so an oversized idle one is restarted.
 _SERENA_LS_MARKER = "/.serena/language_servers/"
@@ -194,6 +198,10 @@ def is_gradle_daemon_jvm(proc: ProcessInfo) -> bool:
     return any(marker in command for marker in _GRADLE_DAEMON_MARKERS)
 
 
+def is_kotlin_daemon_jvm(proc: ProcessInfo) -> bool:
+    return is_gradle_daemon_jvm(proc) and _KOTLIN_DAEMON_MARKER in (proc.command or "").lower()
+
+
 def _is_idle_gradle(proc: ProcessInfo) -> bool:
     return proc.cpu < _IDLE_CPU and is_gradle_daemon_jvm(proc)
 
@@ -219,6 +227,11 @@ def _oversize_reason(proc: ProcessInfo) -> str:
 def _is_long_idle_gradle(proc: ProcessInfo) -> bool:
     return (_is_idle_gradle(proc) and proc.idle_seconds is not None
             and proc.idle_seconds >= GRADLE_IDLE_SECONDS)
+
+
+def _is_idle_kotlin_daemon(proc: ProcessInfo) -> bool:
+    return (proc.cpu < _IDLE_CPU and is_kotlin_daemon_jvm(proc) and proc.idle_seconds is not None
+            and proc.idle_seconds >= KOTLIN_IDLE_SECONDS)
 
 
 @dataclass(frozen=True)
@@ -283,6 +296,15 @@ CATEGORIES: List[KillCategory] = [
         strategy="terminate",
         matcher=_is_long_idle_gradle,
         reason=lambda proc: f"no build CPU for {(proc.idle_seconds or 0) // 60}m",
+    ),
+    KillCategory(
+        key="kotlin-idle",
+        label="Idle Kotlin compile daemons",
+        description="Kotlin compile daemon JVMs with no compile CPU use for 30m+, tracked across "
+                    "cycles. The Kotlin Gradle plugin starts a fresh one on the next compile.",
+        strategy="terminate",
+        matcher=_is_idle_kotlin_daemon,
+        reason=lambda proc: f"no compile CPU for {(proc.idle_seconds or 0) // 60}m",
     ),
     KillCategory(
         key="codex",
