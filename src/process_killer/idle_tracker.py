@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Cross-cycle idle tracking for Gradle / Kotlin daemon JVMs and serena language servers:
+Cross-cycle idle tracking for Gradle / Kotlin daemon JVMs, serena language servers and
+Claude scratchpad processes:
 a CPU% snapshot cannot tell idle from a task hand-off, so cumulative CPU time is
 compared between observations. `idle_seconds` stays None until a process has been seen twice.
 """
@@ -10,7 +11,12 @@ import time
 from pathlib import Path
 from typing import Callable, List
 
-from .categories import is_gradle_daemon_jvm, is_kotlin_daemon_jvm, is_serena_language_server
+from .categories import (
+    is_gradle_daemon_jvm,
+    is_kotlin_daemon_jvm,
+    is_scratchpad_process,
+    is_serena_language_server,
+)
 from .models import ProcessInfo
 
 DEFAULT_STATE_PATH = "~/.local/state/psk/idle.json"
@@ -49,7 +55,8 @@ class IdleTracker:
         previous = self._load()
         current = {}
         for proc in processes:
-            if not (is_gradle_daemon_jvm(proc) or is_serena_language_server(proc)):
+            if not (is_gradle_daemon_jvm(proc) or is_serena_language_server(proc)
+                    or is_scratchpad_process(proc)):
                 continue
             start = now - proc.etime_seconds
             prev = previous.get(str(proc.pid))

@@ -81,6 +81,7 @@ def kill(
     - gradle: Idle Gradle/Kotlin build daemons (CPU < 1%)
     - gradle-idle: Gradle/Kotlin daemons with no build CPU for 1h+ (tracked across runs)
     - kotlin-idle: Kotlin compile daemons with no compile CPU for 30m+ (tracked across runs)
+    - scratchpad-orphan: PPID 1 processes from an ended Claude session's scratchpad, idle 1h+
     - lsp-oversize: serena language servers at 3GB+ footprint, idle 30m+ (serena restarts them)
 
     Examples:
@@ -210,7 +211,8 @@ def daemon(
     """
     Run the periodic cleanup daemon.
 
-    Each cycle processes zombie, lsp, lsp-oversize, orphan-tail, gradle-idle and kotlin-idle by default and appends
+    Each cycle processes zombie, lsp, lsp-oversize, orphan-tail, gradle-idle, kotlin-idle and
+    scratchpad-orphan by default and appends
     signal audit records and a summary to the log. Intended to be supervised by
     launchd (see deploy/install-daemon.sh) but runnable standalone.
 

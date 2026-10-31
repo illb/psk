@@ -60,6 +60,9 @@ Categories:
   an hour apart; active build trees stay protected
 - `kotlin-idle` — Kotlin compile daemon JVMs with no compile CPU use for 30m+ (same cross-run tracking; idle
   housekeeping under 30 cpu-s/hour does not count as use). The Kotlin Gradle plugin starts a fresh one on the next compile
+- `scratchpad-orphan` — PPID 1 processes whose command runs from a Claude session scratchpad
+  (`/tmp/claude-<uid>/<project>/<session-id>/scratchpad/`) after that session stopped running
+  (checked against `~/.claude/sessions/<pid>.json` pid + start time), idle 1h+ across runs
 - `lsp-oversize` — serena-managed language servers (`~/.serena/language_servers/`, parent alive) at 3GB+
   macOS footprint and idle 30m+ across runs. Serena starts a fresh one on its next tool call
 - `codex` — OpenAI Codex CLI processes that are orphaned (PPID 1) or ≥ 3 days old. `codex app-server`
@@ -92,7 +95,7 @@ before termination unless `--yes` is explicitly passed.
 
 Run a periodic background cleanup so leaks never accumulate. Installed as a
 macOS LaunchAgent (`com.illb.psk-daemon`), it runs
-`zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,kotlin-idle` every 30 minutes and at login/boot. The snapshot-based
+`zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,kotlin-idle,scratchpad-orphan` every 30 minutes and at login/boot. The snapshot-based
 `gradle`, `codex`, and `claude` are intentionally excluded from daemon termination by default. The
 daemon may report clearly stale AI candidates in the log, but cleanup stays
 manual via `psk stale-ai` so the user can confirm first.
@@ -108,10 +111,11 @@ tail -n 20 ~/Library/Logs/psk-daemon.log
 
 # run standalone (no launchd):
 psk daemon --once                          # one cycle, then exit
-psk daemon --interval 1800 -c zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,kotlin-idle
+psk daemon --interval 1800 -c zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,kotlin-idle,scratchpad-orphan
 psk kill -c lsp-oversize --dry-run         # oversized idle serena language servers
 psk kill -c gradle-idle --dry-run          # daemons idle 1h+ by cross-run CPU time
 psk kill -c kotlin-idle --dry-run          # Kotlin compile daemons idle 30m+
+psk kill -c scratchpad-orphan --dry-run    # leftovers of ended Claude sessions' scratchpads
 psk kill -c orphan-tail --dry-run          # 연결이 끊긴 stdout 파이프 검증 결과
 psk kill -c gradle --dry-run               # inspect idle Gradle/Kotlin daemon candidates manually
 psk daemon --no-check-stale-ai             # disable codex/claude stale reporting

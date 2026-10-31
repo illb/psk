@@ -12,9 +12,11 @@ Strategies:
   parent with SIGCHLD so the parent reaps it.
 """
 from dataclasses import dataclass
+import re
 import shlex
 from typing import Callable, List, Optional
 
+from .claude_sessions import live_claude_session_ids
 from .footprint import footprint_kb
 from .models import ProcessInfo
 from .tail_output import disconnected_tail_identity
@@ -68,6 +70,12 @@ _CODEX_MARKERS = (
 
 # Codex app-server is a long-lived service: a leak only when orphaned with no live children.
 _CODEX_APP_SERVER_MARKER = "codex app-server"
+
+# A Claude session's scratchpad path in the command line names the session that started it.
+_SCRATCHPAD_RE = re.compile(
+    r"/tmp/claude-\d+/[^/\s]+/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/scratchpad/"
+)
+SCRATCHPAD_ORPHAN_IDLE_SECONDS = 3600
 
 
 def _is_zombie(proc: ProcessInfo) -> bool:
@@ -224,6 +232,29 @@ def _oversize_reason(proc: ProcessInfo) -> str:
             f"{LSP_OVERSIZE_KB / 1048576:g}G; idle {(proc.idle_seconds or 0) // 60}m")
 
 
+def scratchpad_session_id(proc: ProcessInfo) -> Optional[str]:
+    match = _SCRATCHPAD_RE.search(proc.command or "")
+    return match.group(1) if match else None
+
+
+def is_scratchpad_process(proc: ProcessInfo) -> bool:
+    return not _is_zombie(proc) and scratchpad_session_id(proc) is not None
+
+
+def _is_scratchpad_orphan(proc: ProcessInfo) -> bool:
+    if proc.ppid != "1" or proc.cpu >= _IDLE_CPU or not is_scratchpad_process(proc):
+        return False
+    if proc.idle_seconds is None or proc.idle_seconds < SCRATCHPAD_ORPHAN_IDLE_SECONDS:
+        return False
+    live = live_claude_session_ids()
+    return live is not None and scratchpad_session_id(proc) not in live
+
+
+def _scratchpad_orphan_reason(proc: ProcessInfo) -> str:
+    session = (scratchpad_session_id(proc) or "?")[:8]
+    return f"PPID 1; session {session} ended; idle {(proc.idle_seconds or 0) // 60}m"
+
+
 def _is_long_idle_gradle(proc: ProcessInfo) -> bool:
     return (_is_idle_gradle(proc) and proc.idle_seconds is not None
             and proc.idle_seconds >= GRADLE_IDLE_SECONDS)
@@ -305,6 +336,15 @@ CATEGORIES: List[KillCategory] = [
         strategy="terminate",
         matcher=_is_idle_kotlin_daemon,
         reason=lambda proc: f"no compile CPU for {(proc.idle_seconds or 0) // 60}m",
+    ),
+    KillCategory(
+        key="scratchpad-orphan",
+        label="Orphaned Claude scratchpad processes",
+        description="PPID 1 processes running from a Claude session scratchpad whose session is no "
+                    "longer running (~/.claude/sessions), idle 1h+ across cycles.",
+        strategy="terminate",
+        matcher=_is_scratchpad_orphan,
+        reason=_scratchpad_orphan_reason,
     ),
     KillCategory(
         key="codex",
