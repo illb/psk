@@ -4,7 +4,7 @@ Process Killer main module
 """
 import traceback
 from typing import Optional, List
-from rich.console import Console
+from ..common.console import make_console
 from rich.panel import Panel
 
 from .collector import ProcessCollector
@@ -15,7 +15,7 @@ from .display import ProcessDisplay
 from ..common.questionary_utils import select_single
 from ..common.exceptions import CancelledError
 
-console = Console()
+console = make_console()
 
 
 class ProcessKiller:

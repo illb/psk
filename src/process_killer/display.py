@@ -5,12 +5,12 @@ Process display and selection module
 import os
 import unicodedata
 from typing import List, Optional
-from rich.console import Console
+from ..common.console import make_console
 
 from .models import ProcessInfo
 from .prompt_utils import select_multiple_custom
 
-console = Console()
+console = make_console()
 
 
 class ProcessDisplay:

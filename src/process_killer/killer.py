@@ -6,13 +6,13 @@ import os
 import signal
 import time
 from typing import List
-from rich.console import Console
+from ..common.console import make_console
 
 from .models import ProcessInfo
 from ..common.questionary_utils import select_yes_no
 from ..common.exceptions import CancelledError
 
-console = Console()
+console = make_console()
 
 
 class ProcessTerminator:

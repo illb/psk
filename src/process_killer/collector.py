@@ -7,11 +7,11 @@ import os
 import re
 from typing import List
 from datetime import datetime, timedelta
-from rich.console import Console
+from ..common.console import make_console
 
 from .models import ProcessInfo
 
-console = Console()
+console = make_console()
 
 
 class ProcessCollector:

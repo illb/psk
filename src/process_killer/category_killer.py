@@ -13,7 +13,7 @@ import sys
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
-from rich.console import Console
+from ..common.console import make_console
 from rich.panel import Panel
 from rich.table import Table
 
@@ -24,7 +24,7 @@ from .models import ProcessInfo
 from ..common.exceptions import CancelledError
 from ..common.questionary_utils import select_checkbox, select_yes_no
 
-console = Console()
+console = make_console()
 
 _TERM_GRACE_SECONDS = 2.0
 _JVM_ROLES = {

@@ -4,7 +4,7 @@ Process Killer CLI
 import sys
 import typer
 from typing import Optional
-from rich.console import Console
+from ..common.console import make_console
 
 from ..common.cli_utils import initialize_cli
 from ..process_killer import ProcessKiller, CategoryKiller
@@ -22,7 +22,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-console = Console()
+console = make_console()
 
 
 def run_process_killer(

@@ -7,13 +7,10 @@ from typing import List, Optional, Any
 from prompt_toolkit import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, HSplit, Window, FormattedTextControl
-from rich.console import Console
 
 from .models import ProcessInfo
 from ..common.exceptions import CancelledError
 from ..common.process_utils import is_system_process
-
-console = Console()
 
 
 def select_multiple_custom(
