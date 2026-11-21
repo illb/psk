@@ -45,6 +45,7 @@ class CategoryKiller:
         self.audit = audit
         self.idle_tracker = idle_tracker
         self._categories: Dict[int, str] = {}
+        self._killed_pids: List[int] = []
 
     def _audit(self, proc: ProcessInfo, event: str, **details) -> None:
         if self.audit is None:
@@ -315,14 +316,16 @@ class CategoryKiller:
             self._audit(proc, "selected", strategy=category.strategy)
 
         killed = 0
+        self._killed_pids = []
         if terminate:
             killed += self._terminate(terminate, assume_yes, quiet=quiet)
+        killed_pids = [{"pid": pid, "category": self._categories[pid]} for pid in self._killed_pids]
         reap_signals = self._reap_parents(reap, quiet=quiet) if reap else 0
 
         by_category: dict = {}
         for _, category in targets:
             by_category[category.key] = by_category.get(category.key, 0) + 1
-        return {"targeted": len(targets), "killed": killed,
+        return {"targeted": len(targets), "killed": killed, "killed_pids": killed_pids,
                 "reap_signals": reap_signals, "by_category": by_category}
 
     def _terminate(self, procs: List[ProcessInfo], assume_yes: bool,
@@ -352,6 +355,7 @@ class CategoryKiller:
             self._audit(proc, "observed", signal="SIGTERM",
                         alive=proc.pid in survivor_pids)
         terminated = len(sent) - len(survivors)
+        self._killed_pids = [p.pid for p in sent if p.pid not in survivor_pids]
         if not quiet:
             console.print(f"[green]✓[/green] {terminated} terminated by SIGTERM.")
 
@@ -389,6 +393,8 @@ class CategoryKiller:
             alive = self._alive(proc.pid)
             self._audit(proc, "observed", signal="SIGKILL", alive=alive)
             force_killed += not alive
+            if not alive:
+                self._killed_pids.append(proc.pid)
         if not quiet:
             console.print(f"[green]✓[/green] {force_killed}/{len(survivors)} force-killed.")
         return terminated + force_killed

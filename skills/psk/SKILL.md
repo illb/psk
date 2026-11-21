@@ -68,6 +68,12 @@ tail -n 20 ~/Library/Logs/psk-daemon.log           # recent cleanup cycles
 ~/kenny/asdp-kenny/kenny-work/psk/deploy/uninstall-daemon.sh
 ```
 
+Policy hooks (`~/.config/psk/hooks.json`) run on their own interval and after kills.
+`gradle-lock-stall` (every 2 min) kills the gradle client of a build that holds
+`/tmp/as-incubator-gradle.lock` with no build CPU for 10m while others wait and the holder is
+orphaned or 30m+ old; after any kill it also frees a lock still held by a killed build's holder.
+Audit: `grep '"hook"' ~/Library/Logs/psk-daemon.log`. Details: README "Policy hooks".
+
 The daemon deliberately does NOT auto-terminate `codex` / `claude`. It may log
 clearly stale AI candidates and the review command (`psk stale-ai`), but
 termination stays manual so the user can confirm first.

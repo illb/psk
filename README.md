@@ -126,6 +126,36 @@ psk kill -c gradle --dry-run               # inspect idle Gradle/Kotlin daemon c
 psk daemon --no-check-stale-ai             # disable codex/claude stale reporting
 ```
 
+### Policy hooks (`~/.config/psk/hooks.json`)
+
+Personal policies live outside psk as hook commands. The daemon runs each hook on its own
+interval (`event: tick`) and after any kill (`event: post-kill`, with the killed PIDs); a hook
+reads a JSON payload on stdin and prints `{"targets": [{"pid": …, "reason": …}]}`. psk refuses
+itself and its ancestors, other users' processes and `claude`/`codex`/`tmux`/`launchd`, then
+sends SIGTERM → SIGKILL and writes `hook-target`/`signal`/`observed` audit records.
+`--hooks ''` disables hooks.
+
+`hooks/gradle_lock_stall.py` frees the shared Gradle lock (`/tmp/as-incubator-gradle.lock`)
+when the holding build stopped making progress while others wait:
+
+- tick: the holder's build (gradle client, its daemon found over the client's TCP connection,
+  the daemon's workers) used under `active-cpu-seconds` CPU for `idle-minutes`, someone waits,
+  and the holder is orphaned (PPID 1) or held the lock `max-hold-minutes` → the gradle client
+  is killed; the daemon cancels the build, `lockf` exits and the lock frees. A holder is never
+  picked on first sight.
+- post-kill: when a killed process (for example a `gradle-stuck` daemon) belonged to a holder's
+  build and the holder still holds the lock `release-wait-seconds` later → the holder and its
+  remaining descendants are killed. Lock files are never removed.
+
+```json
+{"hooks": [{"name": "gradle-lock-stall",
+  "command": ["~/kenny/asdp-kenny/kenny-work/psk/.venv/bin/python", "-I",
+              "~/kenny/asdp-kenny/kenny-work/psk/hooks/gradle_lock_stall.py"],
+  "interval-seconds": 120, "timeout-seconds": 60,
+  "settings": {"locks": ["/tmp/as-incubator-gradle.lock"], "idle-minutes": 10,
+               "max-hold-minutes": 30, "active-cpu-seconds": 2, "release-wait-seconds": 15}}]}
+```
+
 `orphan-tail`은 PPID 1만으로 종료하지 않는다. macOS `libproc`로 실제 프로세스명과
 부모 PID를 확인하고 stdout이 쓰기 파이프이며 peer가 없고 EOF인 경우에만 자동 정리한다.
 소비자가 남은 파이프, 파일, 터미널, `/dev/null`, 조회 실패 및 미지원 OS는 보호한다.

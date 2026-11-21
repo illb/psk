@@ -15,6 +15,7 @@ from ..process_killer.daemon import (
     DEFAULT_LOG_PATH,
     DEFAULT_CATEGORIES,
 )
+from ..process_killer.hooks import DEFAULT_HOOKS_PATH
 
 app = typer.Typer(
     name="psk",
@@ -208,6 +209,11 @@ def daemon(
         "--check-stale-ai/--no-check-stale-ai",
         help="Also report clearly stale Codex/Claude candidates; never terminates them.",
     ),
+    hooks: str = typer.Option(
+        DEFAULT_HOOKS_PATH,
+        "--hooks",
+        help="Policy hooks config (JSON); hooks run on their own interval and after kills. '' disables.",
+    ),
 ):
     """
     Run the periodic cleanup daemon.
@@ -227,6 +233,7 @@ def daemon(
         once=once,
         log_path=(log or None),
         check_stale_ai=check_stale_ai,
+        hooks_path=(hooks or None),
     )
 
 
