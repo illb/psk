@@ -27,7 +27,8 @@ from .idle_tracker import IdleTracker
 DEFAULT_INTERVAL_SECONDS = 1800  # 30 minutes
 DEFAULT_LOG_PATH = "~/Library/Logs/psk-daemon.log"
 DEFAULT_CATEGORIES = [
-    "zombie", "lsp", "lsp-oversize", "orphan-tail", "gradle-idle", "kotlin-idle", "scratchpad-orphan",
+    "zombie", "lsp", "lsp-oversize", "orphan-tail", "gradle-idle", "gradle-stuck", "kotlin-idle",
+    "scratchpad-orphan",
 ]
 STALE_AI_CATEGORIES = ["codex", "claude"]
 

@@ -80,6 +80,7 @@ def kill(
     - lsp:    Orphaned language servers (PPID 1) — leaked serena/pyright/ts/kotlin LSPs
     - gradle: Idle Gradle/Kotlin build daemons (CPU < 1%)
     - gradle-idle: Gradle/Kotlin daemons with no build CPU for 1h+ (tracked across runs)
+    - gradle-stuck: Gradle daemons whose build ran 2h+ (no app child) or 30m+ after running out of memory
     - kotlin-idle: Kotlin compile daemons with no compile CPU for 30m+ (tracked across runs)
     - scratchpad-orphan: PPID 1 processes from an ended Claude session's scratchpad, idle 1h+
     - lsp-oversize: serena language servers at 3GB+ footprint, idle 30m+ (serena restarts them)
@@ -211,7 +212,7 @@ def daemon(
     """
     Run the periodic cleanup daemon.
 
-    Each cycle processes zombie, lsp, lsp-oversize, orphan-tail, gradle-idle, kotlin-idle and
+    Each cycle processes zombie, lsp, lsp-oversize, orphan-tail, gradle-idle, gradle-stuck, kotlin-idle and
     scratchpad-orphan by default and appends
     signal audit records and a summary to the log. Intended to be supervised by
     launchd (see deploy/install-daemon.sh) but runnable standalone.

@@ -14,10 +14,12 @@ Strategies:
 from dataclasses import dataclass
 import re
 import shlex
+import time
 from typing import Callable, List, Optional
 
 from .claude_sessions import live_claude_session_ids
 from .footprint import footprint_kb
+from .gradle_build import app_children, current_build, daemon_log
 from .models import ProcessInfo
 from .tail_output import disconnected_tail_identity
 
@@ -46,6 +48,11 @@ _IDLE_CPU = 1.0
 
 # gradle-idle: no build-level CPU use observed for this long (see idle_tracker).
 GRADLE_IDLE_SECONDS = 3600
+
+# gradle-stuck: a build running this long, or this long after the daemon ran out of memory, will not finish
+# and keeps holding build locks (~/.gradle/asdp-shared-tree-lock) other builds wait on.
+GRADLE_BUILD_MAX_SECONDS = 2 * 3600
+GRADLE_EXHAUSTED_BUILD_SECONDS = 1800
 
 # kotlin-idle: the Kotlin Gradle plugin starts a fresh compile daemon on demand.
 KOTLIN_IDLE_SECONDS = 1800
@@ -260,6 +267,27 @@ def _is_long_idle_gradle(proc: ProcessInfo) -> bool:
             and proc.idle_seconds >= GRADLE_IDLE_SECONDS)
 
 
+def _stuck_build_reason(proc: ProcessInfo, now: float) -> Optional[str]:
+    if not is_gradle_daemon_jvm(proc) or is_kotlin_daemon_jvm(proc):
+        return None
+    log = daemon_log(proc.pid)
+    build = current_build(log) if log is not None else None
+    # A log left by an earlier process with the same pid starts before this one.
+    if build is None or build.started < now - proc.etime_seconds - 60:
+        return None
+    running = int(now - build.started)
+    if build.exhausted and running >= GRADLE_EXHAUSTED_BUILD_SECONDS:
+        return f"build {running // 60}m, daemon out of JVM {build.exhausted}"
+    if running >= GRADLE_BUILD_MAX_SECONDS and not app_children(proc.pid):
+        return f"build running {running // 3600}h {running % 3600 // 60}m"
+    return None
+
+
+def _is_stuck_gradle_build(proc: ProcessInfo) -> bool:
+    proc.stuck_build = _stuck_build_reason(proc, time.time())
+    return proc.stuck_build is not None
+
+
 def _is_idle_kotlin_daemon(proc: ProcessInfo) -> bool:
     return (proc.cpu < _IDLE_CPU and is_kotlin_daemon_jvm(proc) and proc.idle_seconds is not None
             and proc.idle_seconds >= KOTLIN_IDLE_SECONDS)
@@ -327,6 +355,16 @@ CATEGORIES: List[KillCategory] = [
         strategy="terminate",
         matcher=_is_long_idle_gradle,
         reason=lambda proc: f"no build CPU for {(proc.idle_seconds or 0) // 60}m",
+    ),
+    KillCategory(
+        key="gradle-stuck",
+        label="Stuck Gradle builds",
+        description="Gradle daemons whose current build (from the daemon log) has run 2h+, or 30m+ after "
+                    "the daemon ran out of heap/Metaspace. Builds running an app (bootRun) are kept "
+                    "unless memory ran out.",
+        strategy="terminate",
+        matcher=_is_stuck_gradle_build,
+        reason=lambda proc: proc.stuck_build or "stuck build",
     ),
     KillCategory(
         key="kotlin-idle",

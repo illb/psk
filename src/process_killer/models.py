@@ -21,6 +21,7 @@ class ProcessInfo(BaseModel):
     footprint_kb: Optional[int] = Field(default=None, description="macOS phys_footprint in KB")
     idle_seconds: Optional[int] = Field(
         default=None, description="Seconds without build-level CPU use, observed across cycles")
+    stuck_build: Optional[str] = Field(default=None, description="Why the Gradle daemon's current build is stuck")
     command: str = Field(..., description="Full command")
     name: str = Field(..., description="Formatted process name")
     type: str = Field(..., description="Process type")

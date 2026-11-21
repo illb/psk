@@ -58,6 +58,9 @@ Categories:
 - `gradle-idle` — Gradle / Kotlin daemon JVMs with no build-level CPU use for 1h+. Cumulative CPU time is
   compared across runs (`~/.local/state/psk/idle.json`), so a daemon matches only after two observations
   an hour apart; active build trees stay protected
+- `gradle-stuck` — Gradle daemons whose current build, read from the daemon's own log
+  (`daemon-<pid>.out.log`), has run 2h+ with no app child (bootRun / JavaExec stays protected), or 30m+
+  after the daemon reported running out of heap/Metaspace. Such builds never finish and hold build locks
 - `kotlin-idle` — Kotlin compile daemon JVMs with no compile CPU use for 30m+ (same cross-run tracking; idle
   housekeeping under 30 cpu-s/hour does not count as use). The Kotlin Gradle plugin starts a fresh one on the next compile
 - `scratchpad-orphan` — PPID 1 processes whose command runs from a Claude session scratchpad
@@ -95,7 +98,7 @@ before termination unless `--yes` is explicitly passed.
 
 Run a periodic background cleanup so leaks never accumulate. Installed as a
 macOS LaunchAgent (`com.illb.psk-daemon`), it runs
-`zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,kotlin-idle,scratchpad-orphan` every 30 minutes and at login/boot. The snapshot-based
+`zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,gradle-stuck,kotlin-idle,scratchpad-orphan` every 30 minutes and at login/boot. The snapshot-based
 `gradle`, `codex`, and `claude` are intentionally excluded from daemon termination by default. The
 daemon may report clearly stale AI candidates in the log, but cleanup stays
 manual via `psk stale-ai` so the user can confirm first.
@@ -111,9 +114,10 @@ tail -n 20 ~/Library/Logs/psk-daemon.log
 
 # run standalone (no launchd):
 psk daemon --once                          # one cycle, then exit
-psk daemon --interval 1800 -c zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,kotlin-idle,scratchpad-orphan
+psk daemon --interval 1800 -c zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,gradle-stuck,kotlin-idle,scratchpad-orphan
 psk kill -c lsp-oversize --dry-run         # oversized idle serena language servers
 psk kill -c gradle-idle --dry-run          # daemons idle 1h+ by cross-run CPU time
+psk kill -c gradle-stuck --dry-run         # builds stuck 2h+ or after running out of memory
 psk kill -c kotlin-idle --dry-run          # Kotlin compile daemons idle 30m+
 psk kill -c scratchpad-orphan --dry-run    # leftovers of ended Claude sessions' scratchpads
 psk kill -c orphan-tail --dry-run          # 연결이 끊긴 stdout 파이프 검증 결과
