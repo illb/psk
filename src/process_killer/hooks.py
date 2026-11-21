@@ -13,6 +13,7 @@ DEFAULT_STATE_DIR = "~/.local/state/psk"
 TERM_GRACE_SECONDS = 5.0
 _PROTECTED_EXECUTABLES = {"claude", "codex", "launchd", "tmux", "sshd", "login"}
 _REASON_LIMIT = 300
+_NOTICE_FIELDS = 20
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,22 @@ def load_hooks(path: Optional[str]) -> List[Hook]:
             settings=dict(item.get("settings", {})),
         ))
     return hooks
+
+
+def _scalar(value):
+    if isinstance(value, str):
+        return value[:_REASON_LIMIT]
+    return value if isinstance(value, (int, float, bool)) or value is None else str(value)[:_REASON_LIMIT]
+
+
+def _clean_notice(notice: dict) -> dict:
+    clean = {}
+    for key, value in list(notice.items())[:_NOTICE_FIELDS]:
+        if isinstance(value, list):
+            clean[str(key)] = [_scalar(v) for v in value[:_NOTICE_FIELDS]]
+        else:
+            clean[str(key)] = _scalar(value)
+    return clean
 
 
 def _ps_table() -> Dict[int, tuple]:
@@ -125,10 +142,16 @@ class HookRunner:
                         "error": "exit", "exit_code": result.returncode})
             return []
         try:
-            targets = json.loads(result.stdout or "{}").get("targets", [])
+            data = json.loads(result.stdout or "{}")
+            targets = data.get("targets", [])
+            notices = data.get("notices", [])
         except (ValueError, AttributeError):
             self.audit({"event": "hook-error", "hook": hook.name, "hook_event": event, "error": "output"})
             return []
+        for notice in notices if isinstance(notices, list) else []:
+            if isinstance(notice, dict):
+                self.audit({**_clean_notice(notice), "event": "hook-notice", "hook": hook.name,
+                            "hook_event": event})
         return targets if isinstance(targets, list) else []
 
     def _kill(self, hook: Hook, targets: List[dict]) -> List[dict]:

@@ -147,13 +147,38 @@ when the holding build stopped making progress while others wait:
   build and the holder still holds the lock `release-wait-seconds` later → the holder and its
   remaining descendants are killed. Lock files are never removed.
 
+`hooks/lock_deadlock.py` finds shared build locks (`/tmp/as-incubator-gradle.lock`,
+`/tmp/docker-amd64-build.lock`) waiting on each other: a holder's tree waits for a lock whose
+holder's tree waits, around the cycle, for the first lock (a nested `lockf` on the held lock is a
+cycle of one).
+
+- holder: has the lock file open and a live child, with no ancestor holding it open. waiter: a
+  `lockf` on the lock without the file open, or a process with it open, no live child and no
+  ancestor holding it (`host_lock` under an outer `lockf` does not wait).
+- a cycle (keyed by holder PID + start time) seen on two ticks in a row is confirmed once: a
+  `hook-notice` audit record and a macOS notification with each side's holder, owner session
+  (ancestor `claude`/`codex` PID and cwd name, tmux pane) and waiter count.
+- victim: inside the tree holding the lock with the most waiters, the one process waiting for the
+  next lock — killing it ends that tree and its `lockf`, so the busier lock frees.
+- `deadlock-action: notify` (default) only reports, with
+  `.venv/bin/python -I hooks/lock_deadlock.py resolve <id>`, which re-detects and kills the victim
+  only while the same cycle is there. `kill` kills it on confirmation.
+
+Hooks may also print `"notices": [{…}]`; psk audits each as `hook-notice`.
+
 ```json
 {"hooks": [{"name": "gradle-lock-stall",
   "command": ["~/kenny/asdp-kenny/kenny-work/psk/.venv/bin/python", "-I",
               "~/kenny/asdp-kenny/kenny-work/psk/hooks/gradle_lock_stall.py"],
   "interval-seconds": 120, "timeout-seconds": 60,
   "settings": {"locks": ["/tmp/as-incubator-gradle.lock"], "idle-minutes": 10,
-               "max-hold-minutes": 30, "active-cpu-seconds": 2, "release-wait-seconds": 15}}]}
+               "max-hold-minutes": 30, "active-cpu-seconds": 2, "release-wait-seconds": 15}},
+           {"name": "lock-deadlock",
+  "command": ["~/kenny/asdp-kenny/kenny-work/psk/.venv/bin/python", "-I",
+              "~/kenny/asdp-kenny/kenny-work/psk/hooks/lock_deadlock.py"],
+  "interval-seconds": 120,
+  "settings": {"locks": ["/tmp/as-incubator-gradle.lock", "/tmp/docker-amd64-build.lock"],
+               "deadlock-action": "notify"}}]}
 ```
 
 `orphan-tail`은 PPID 1만으로 종료하지 않는다. macOS `libproc`로 실제 프로세스명과

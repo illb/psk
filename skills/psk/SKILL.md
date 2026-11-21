@@ -72,6 +72,11 @@ Policy hooks (`~/.config/psk/hooks.json`) run on their own interval and after ki
 `gradle-lock-stall` (every 2 min) kills the gradle client of a build that holds
 `/tmp/as-incubator-gradle.lock` with no build CPU for 10m while others wait and the holder is
 orphaned or 30m+ old; after any kill it also frees a lock still held by a killed build's holder.
+`lock-deadlock` (every 2 min) confirms Gradle/docker locks waiting on each other (two ticks),
+audits a `hook-notice` and posts a macOS notification with both owners; it kills nothing by
+default — the user runs the printed
+`~/kenny/asdp-kenny/kenny-work/psk/.venv/bin/python -I ~/kenny/asdp-kenny/kenny-work/psk/hooks/lock_deadlock.py resolve <id>`,
+which re-detects and kills only the one waiter in the busier lock's tree.
 Audit: `grep '"hook"' ~/Library/Logs/psk-daemon.log`. Details: README "Policy hooks".
 
 The daemon deliberately does NOT auto-terminate `codex` / `claude`. It may log
