@@ -19,7 +19,7 @@ from typing import Callable, List, Optional
 
 from .claude_sessions import live_claude_session_ids
 from .footprint import footprint_kb
-from .gradle_build import app_children, current_build, daemon_log
+from .gradle_build import app_children, current_build, daemon_log, workers_busy
 from .models import ProcessInfo
 from .tail_output import disconnected_tail_identity
 
@@ -51,7 +51,7 @@ GRADLE_IDLE_SECONDS = 3600
 
 # gradle-stuck: a build running this long, or this long after the daemon ran out of memory, will not finish
 # and keeps holding build locks (~/.gradle/asdp-shared-tree-lock) other builds wait on.
-GRADLE_BUILD_MAX_SECONDS = 2 * 3600
+GRADLE_BUILD_MAX_SECONDS = 3600
 GRADLE_EXHAUSTED_BUILD_SECONDS = 1800
 
 # kotlin-idle: the Kotlin Gradle plugin starts a fresh compile daemon on demand.
@@ -278,7 +278,7 @@ def _stuck_build_reason(proc: ProcessInfo, now: float) -> Optional[str]:
     running = int(now - build.started)
     if build.exhausted and running >= GRADLE_EXHAUSTED_BUILD_SECONDS:
         return f"build {running // 60}m, daemon out of JVM {build.exhausted}"
-    if running >= GRADLE_BUILD_MAX_SECONDS and not app_children(proc.pid):
+    if running >= GRADLE_BUILD_MAX_SECONDS and not app_children(proc.pid) and not workers_busy(proc.pid):
         return f"build running {running // 3600}h {running % 3600 // 60}m"
     return None
 
@@ -359,9 +359,9 @@ CATEGORIES: List[KillCategory] = [
     KillCategory(
         key="gradle-stuck",
         label="Stuck Gradle builds",
-        description="Gradle daemons whose current build (from the daemon log) has run 2h+, or 30m+ after "
-                    "the daemon ran out of heap/Metaspace. Builds running an app (bootRun) are kept "
-                    "unless memory ran out.",
+        description="Gradle daemons whose current build (from the daemon log) has run 1h+ with no app "
+                    "child (bootRun) and no busy worker JVM (tests), or 30m+ after the daemon ran out of "
+                    "heap/Metaspace.",
         strategy="terminate",
         matcher=_is_stuck_gradle_build,
         reason=lambda proc: proc.stuck_build or "stuck build",

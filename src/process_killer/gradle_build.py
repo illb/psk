@@ -3,10 +3,11 @@ import glob
 import os
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 _BUILD_START = "Daemon is about to start building"
 # Tooling API builds (IDE sync) print no BUILD line, so the daemon's own finish line also ends a build.
@@ -14,6 +15,8 @@ _BUILD_END = re.compile(r"^BUILD (SUCCESSFUL|FAILED) in |\] The daemon has finis
 _EXHAUSTED = re.compile(r"^The Daemon will expire after the build after running out of JVM (heap space|Metaspace)")
 _TIMESTAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+[+-]\d{4}) ")
 _READ_LIMIT = 64 * 1024 * 1024
+WORKER_SAMPLE_SECONDS = 10.0
+WORKER_ACTIVE_CPU_SECONDS = 1.0
 
 # Children that belong to the build itself; any other child (bootRun / JavaExec app, dev server) is protected.
 _BUILD_CHILD_MARKERS = (
@@ -72,22 +75,59 @@ def current_build(log: Path) -> Optional[Build]:
     return build
 
 
-def app_children(pid: int) -> List[str]:
-    """Commands of the daemon's children that are not part of the build (a running app or server)."""
+def _children(pid: int) -> Optional[List[Tuple[float, str]]]:
+    """(cumulative CPU seconds, command) of each child, or None when ps fails."""
     try:
-        out = subprocess.run(["ps", "-axo", "ppid=,command="], capture_output=True, text=True,
+        out = subprocess.run(["ps", "-axo", "ppid=,time=,command="], capture_output=True, text=True,
                              timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return ["<ps failed>"]
-    apps = []
+        return None
+    children = []
     for line in out.splitlines():
-        ppid, _, command = line.strip().partition(" ")
-        if ppid != str(pid):
-            continue
-        lowered = command.lower()
-        if not any(marker in lowered for marker in _BUILD_CHILD_MARKERS):
-            apps.append(command.strip())
-    return apps
+        fields = line.split(None, 2)
+        if len(fields) == 3 and fields[0] == str(pid):
+            children.append((_cpu_seconds(fields[1]), fields[2]))
+    return children
+
+
+def _is_build_worker(command: str) -> bool:
+    lowered = command.lower()
+    return any(marker in lowered for marker in _BUILD_CHILD_MARKERS)
+
+
+def app_children(pid: int) -> List[str]:
+    """Commands of the daemon's children that are not part of the build (a running app or server)."""
+    children = _children(pid)
+    if children is None:
+        return ["<ps failed>"]
+    return [command for _, command in children if not _is_build_worker(command)]
+
+
+def _worker_cpu(pid: int) -> Optional[float]:
+    children = _children(pid)
+    if children is None:
+        return None
+    return sum(cpu for cpu, command in children if _is_build_worker(command))
+
+
+def workers_busy(pid: int, window: float = WORKER_SAMPLE_SECONDS) -> bool:
+    """Whether the build's worker JVMs (tests, worker daemons) keep using CPU over the window."""
+    before = _worker_cpu(pid)
+    if before is None:
+        return True
+    time.sleep(window)
+    after = _worker_cpu(pid)
+    return after is None or after - before >= WORKER_ACTIVE_CPU_SECONDS
+
+
+def _cpu_seconds(value: str) -> float:
+    total = 0.0
+    for part in value.split(":"):
+        try:
+            total = total * 60 + float(part)
+        except ValueError:
+            return 0.0
+    return total
 
 
 def _timestamp(line: str) -> Optional[float]:

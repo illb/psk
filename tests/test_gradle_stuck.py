@@ -8,7 +8,7 @@ from unittest.mock import patch
 from src.process_killer import gradle_build
 from src.process_killer.categories import CATEGORY_BY_KEY, _stuck_build_reason
 from src.process_killer.daemon import DEFAULT_CATEGORIES
-from src.process_killer.gradle_build import Build, app_children, current_build, daemon_log
+from src.process_killer.gradle_build import Build, app_children, current_build, daemon_log, workers_busy
 from src.process_killer.models import ProcessInfo
 
 GRADLE = "/opt/jdk/bin/java -Xmx512m org.gradle.launcher.daemon.bootstrap.GradleDaemon 9.5.0"
@@ -75,19 +75,23 @@ class CurrentBuildTests(unittest.TestCase):
 class StuckReasonTests(unittest.TestCase):
     category = CATEGORY_BY_KEY["gradle-stuck"]
 
-    def reason(self, build, *, apps=(), proc=None, running=None):
+    def reason(self, build, *, apps=(), busy=False, proc=None, running=None):
         proc = proc or process()
         now = STARTED + running
         with patch("src.process_killer.categories.daemon_log", return_value=Path("/x.log")), \
                 patch("src.process_killer.categories.current_build", return_value=build), \
-                patch("src.process_killer.categories.app_children", return_value=list(apps)):
+                patch("src.process_killer.categories.app_children", return_value=list(apps)), \
+                patch("src.process_killer.categories.workers_busy", return_value=busy):
             return _stuck_build_reason(proc, now)
 
-    def test_build_over_two_hours_is_stuck(self):
-        self.assertEqual(self.reason(Build(STARTED), running=2 * 3600 + 60), "build running 2h 1m")
+    def test_build_over_an_hour_is_stuck(self):
+        self.assertEqual(self.reason(Build(STARTED), running=3600 + 60), "build running 1h 1m")
 
-    def test_build_under_two_hours_is_kept(self):
-        self.assertIsNone(self.reason(Build(STARTED), running=2 * 3600 - 60))
+    def test_build_under_an_hour_is_kept(self):
+        self.assertIsNone(self.reason(Build(STARTED), running=3600 - 60))
+
+    def test_build_with_busy_test_workers_is_kept(self):
+        self.assertIsNone(self.reason(Build(STARTED), running=6 * 3600, busy=True))
 
     def test_build_running_an_app_is_kept(self):
         self.assertIsNone(self.reason(Build(STARTED), running=6 * 3600,
@@ -124,16 +128,34 @@ def completed(stdout):
 
 class ProcessLookupTests(unittest.TestCase):
     def test_app_children_skip_build_workers(self):
-        ps = ("  83228 /opt/jdk/bin/java -cp w.jar worker.org.gradle.process.internal.worker.GradleWorkerMain 'Gradle Test Executor 3'\n"
-              "  83228 /opt/jdk/bin/java org.jetbrains.kotlin.daemon.KotlinCompileDaemon\n"
-              "  83228 /opt/jdk/bin/java -cp app.jar com.example.MainKt\n"
-              "  99999 /opt/jdk/bin/java -cp other.jar Other\n")
+        ps = ("  83228 0:10.00 /opt/jdk/bin/java -cp w.jar worker.org.gradle.process.internal.worker.GradleWorkerMain 'Gradle Test Executor 3'\n"
+              "  83228 0:02.00 /opt/jdk/bin/java org.jetbrains.kotlin.daemon.KotlinCompileDaemon\n"
+              "  83228 1:00.00 /opt/jdk/bin/java -cp app.jar com.example.MainKt\n"
+              "  99999 0:00.10 /opt/jdk/bin/java -cp other.jar Other\n")
         with patch.object(gradle_build.subprocess, "run", return_value=completed(ps)):
             self.assertEqual(app_children(83228), ["/opt/jdk/bin/java -cp app.jar com.example.MainKt"])
 
     def test_app_children_protect_when_ps_fails(self):
         with patch.object(gradle_build.subprocess, "run", side_effect=OSError):
             self.assertTrue(app_children(83228))
+
+    def test_workers_busy_compares_worker_cpu_over_the_window(self):
+        def ps(worker_cpu, app_cpu):
+            return completed(f"  83228 {worker_cpu} /opt/jdk/bin/java worker.org.gradle.process.internal.worker.GradleWorkerMain\n"
+                             f"  83228 {app_cpu} /opt/jdk/bin/java -cp app.jar Main\n"
+                             f"  77777 99:00.00 /opt/jdk/bin/java worker.org.gradle.process.internal.worker.GradleWorkerMain\n")
+        cases = [((ps("1:00.00", "0:01.00"), ps("1:02.50", "0:01.00")), True),
+                 ((ps("1:00.00", "0:01.00"), ps("1:00.30", "9:00.00")), False),
+                 ((ps("1:59:00.00", "0:00.00"), ps("2:00:00.00", "0:00.00")), True)]
+        for samples, expected in cases:
+            with patch.object(gradle_build.subprocess, "run", side_effect=list(samples)), \
+                    patch.object(gradle_build.time, "sleep"):
+                self.assertEqual(workers_busy(83228), expected)
+
+    def test_workers_busy_protects_when_ps_fails(self):
+        with patch.object(gradle_build.subprocess, "run", side_effect=OSError), \
+                patch.object(gradle_build.time, "sleep"):
+            self.assertTrue(workers_busy(83228))
 
     def test_daemon_log_comes_from_the_open_file(self):
         lsof = "p83228\nf1\nn/custom/home/daemon/9.5.0/daemon-83228.out.log\nf2\nn/dev/null\n"

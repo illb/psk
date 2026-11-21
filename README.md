@@ -59,7 +59,8 @@ Categories:
   compared across runs (`~/.local/state/psk/idle.json`), so a daemon matches only after two observations
   an hour apart; active build trees stay protected
 - `gradle-stuck` — Gradle daemons whose current build, read from the daemon's own log
-  (`daemon-<pid>.out.log`), has run 2h+ with no app child (bootRun / JavaExec stays protected), or 30m+
+  (`daemon-<pid>.out.log`), has run 1h+ with no app child (bootRun / JavaExec stays protected) and no worker
+  JVM (test executor, worker daemon) using 1s+ CPU over a 10s sample, or 30m+
   after the daemon reported running out of heap/Metaspace. Such builds never finish and hold build locks
 - `kotlin-idle` — Kotlin compile daemon JVMs with no compile CPU use for 30m+ (same cross-run tracking; idle
   housekeeping under 30 cpu-s/hour does not count as use). The Kotlin Gradle plugin starts a fresh one on the next compile
@@ -117,7 +118,7 @@ psk daemon --once                          # one cycle, then exit
 psk daemon --interval 1800 -c zombie,lsp,lsp-oversize,orphan-tail,gradle-idle,gradle-stuck,kotlin-idle,scratchpad-orphan
 psk kill -c lsp-oversize --dry-run         # oversized idle serena language servers
 psk kill -c gradle-idle --dry-run          # daemons idle 1h+ by cross-run CPU time
-psk kill -c gradle-stuck --dry-run         # builds stuck 2h+ or after running out of memory
+psk kill -c gradle-stuck --dry-run         # builds stuck 1h+ or after running out of memory
 psk kill -c kotlin-idle --dry-run          # Kotlin compile daemons idle 30m+
 psk kill -c scratchpad-orphan --dry-run    # leftovers of ended Claude sessions' scratchpads
 psk kill -c orphan-tail --dry-run          # 연결이 끊긴 stdout 파이프 검증 결과

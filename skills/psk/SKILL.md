@@ -37,7 +37,7 @@ session invoking it.
 | `orphan-tail` | PPID 1 follow-mode tail, 커널에서 stdout 파이프 peer 없음 + EOF 확인 | verified auto |
 | `gradle` | Idle Gradle / Kotlin daemon JVMs (CPU < 1%)                  | manual |
 | `gradle-idle` | Gradle / Kotlin daemons with no build CPU for 1h+ (cumulative CPU compared across runs) | daemon auto |
-| `gradle-stuck` | Gradle daemons whose current build (daemon log) ran 2h+ with no app child (bootRun), or 30m+ after running out of heap/Metaspace | daemon auto |
+| `gradle-stuck` | Gradle daemons whose current build (daemon log) ran 1h+ with no app child (bootRun) and no worker JVM (tests) using CPU over a 10s sample, or 30m+ after running out of heap/Metaspace | daemon auto |
 | `kotlin-idle` | Kotlin compile daemons with no compile CPU for 30m+ (housekeeping < 30 cpu-s/hour ignored) | daemon auto |
 | `scratchpad-orphan` | PPID 1 processes from a Claude session scratchpad whose session is no longer running, idle 1h+ | daemon auto |
 | `lsp-oversize` | Serena language servers (parent alive) at 3GB+ footprint, idle 30m+; serena restarts them on demand | daemon auto |

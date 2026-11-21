@@ -80,7 +80,7 @@ def kill(
     - lsp:    Orphaned language servers (PPID 1) — leaked serena/pyright/ts/kotlin LSPs
     - gradle: Idle Gradle/Kotlin build daemons (CPU < 1%)
     - gradle-idle: Gradle/Kotlin daemons with no build CPU for 1h+ (tracked across runs)
-    - gradle-stuck: Gradle daemons whose build ran 2h+ (no app child) or 30m+ after running out of memory
+    - gradle-stuck: Gradle daemons whose build ran 1h+ (no app child, no busy test/worker JVM) or 30m+ after running out of memory
     - kotlin-idle: Kotlin compile daemons with no compile CPU for 30m+ (tracked across runs)
     - scratchpad-orphan: PPID 1 processes from an ended Claude session's scratchpad, idle 1h+
     - lsp-oversize: serena language servers at 3GB+ footprint, idle 30m+ (serena restarts them)
